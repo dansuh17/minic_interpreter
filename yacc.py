@@ -2,6 +2,7 @@ import ply.yacc as yacc
 from lex import tokens
 from astree import *
 
+
 """
 Grammar for semi-C.
 Creates a shift-reduce parser from LALR table created from grammar
@@ -30,8 +31,6 @@ postfix_expression
     | postfix_expression '(' argument_expression_list ')'
     | postfix_expression PPLUS
     | postfix_expression MMINUS
-    | '(' type_name ')' '{' initializer_list '}'
-    | '(' type_name ')' '{' initializer_list ',' '}'
 
 argument_expression_list
     : assignment_expression
@@ -44,7 +43,6 @@ unary_expression
 
 cast_expression
     : unary_expression
-    | '(' type_name ')' cast_expression
 
 multiplicative_expression
     : cast_expression
@@ -159,14 +157,6 @@ parameter_declaration
     | declaration_specifiers abstract_declarator
     | declaration_specifiers
 
-identifier_list
-    : identifier
-    | identifier_list ',' identifier
-
-type_name
-    : specifier_qualifier_list abstract_declarator
-    | specifier_qualifier_list
-
 abstract_declarator
     : pointer direct_abstract_declarator
     | pointer
@@ -175,10 +165,8 @@ abstract_declarator
 direct_abstract_declarator
     : '(' abstract_declarator ')'
     | '[' ']'
-    | '[' '*' ']'
     | '[' assignment_expression ']'
     | direct_abstract_declarator '[' ']'
-    | direct_abstract_declarator '[' '*' ']'
     | direct_abstract_declarator '[' assignment_expression ']'
     | '(' ')'
     | '(' parameter_type_list ')'
@@ -241,9 +229,7 @@ iteration_statement
     | FOR '(' declaration expression_statement expression ')' statement
 
 jump_statement
-    | CONTINUE ';'
-    | BREAK ';'
-    | RETURN ';'
+    : RETURN ';'
     | RETURN expression ';'
 
 translation_unit  /* starting point */
@@ -255,12 +241,7 @@ external_declaration
     | declaration
 
 function_definition
-    : declaration_specifiers declarator declaration_list compound_statement
-    | declaration_specifiers declarator compound_statement
-
-declaration_list
-    : declaration
-    | declaration_list declaration
+    : declaration_specifiers declarator compound_statement
 """
 start = 'translation_unit'  # starting nonterminal
 
@@ -312,8 +293,6 @@ def p_postfix_expression(p):
         | postfix_expression '(' argument_expression_list ')'
         | postfix_expression PPLUS
         | postfix_expression MMINUS
-        | '(' type_name ')' '{' initializer_list '}'
-        | '(' type_name ')' '{' initializer_list ',' '}'
     """
     if len(p) == 2:
         p[0] = p[1]
@@ -327,8 +306,7 @@ def p_postfix_expression(p):
         elif p[2] == '(':
             p[0] = FunctionCall(func_name=p[1], argument_list=p[3])
     else:
-        # compound literals - (int[]) {1, 2, 3} or (int) {1} or (struct foo) {x, 'a', 0}
-        # TODO should we support this??
+        raise Exception
 
 
 def p_argument_expression_list(p):
@@ -362,12 +340,9 @@ def p_unary_expression(p):
 def p_cast_expression(p):
     """
     cast_expression : unary_expression
-        | '(' type_name ')' cast_expression
     """
     if len(p) == 2:
         p[0] = p[1]
-    elif len(p) == 5:
-        p[0] = TypeCast(type_name=p[2], cast_expr=p[4])
     else:
         raise Exception
 
@@ -560,11 +535,14 @@ def p_declaration_specifiers(p):
     """
     # no alignment specifiers (ALIGNAS), no function specifiers (INLINE), no type qualifiers (CONST, VOLATILE),
     # no storage class specifiers (REGISTER, THREAD_LOCAL)
+    # declaration specifiers are not basically FLOAT INT or VOID
     if len(p) == 2:
-        p[0] = p[1]
+        dec_spec_list = DeclarationSpecifiers()
+        dec_spec_list.append(p[1])
+        p[0] = dec_spec_list
     elif len(p) == 3:
-        p[1] += p[2]
-        p[0] = p[1]
+        p[2].append(p[1])
+        p[0] = p[2]
     else:
         raise Exception
 
@@ -575,7 +553,7 @@ def p_type_specifier(p):
         | INT
         | FLOAT
     """
-    p[0] = p[1]
+    p[0] = Type(value=p[1])
 
 
 def p_pointer(p):
@@ -645,79 +623,33 @@ def p_declarator(p):
         raise Exception
 
 
-def p_init_declarator(p):
+def p_designator(p):
     """
-    init_declarator : declarator '=' initializer
-        | declarator
+    designator : '[' constant_expression ']'
     """
-
-def p_specifier_qualifier_list(p):
-    """
-    specifier_qualifier_list : type_specifier specifier_qualifier_list
-        | type_specifier
-        | specifier_qualifier_list
-    """
+    p[0] = p[2]
 
 
-def p_declarator_list(p):
+def p_designator_list(p):
     """
-    init_declarator_list : init_declarator
-        | init_declarator_list ',' init_declarator
+    designator_list : designator
+        | designator_list designator
     """
+    if len(p) == 2:
+        p[0] = Designators(first_designator=p[1])
+    elif len(p) == 3:
+        p[0] = p[1].append(p[2])
+    else:
+        raise Exception
 
 
-def p_parameter_type_list(p):
+def p_designation(p):
     """
-    parameter_type_list : parameter_list
+    designation : designator_list '='
     """
+    # delegate designator list
     p[0] = p[1]
 
-def p_parameter_list(p):
-    """
-    parameter_list : parameter_declaration
-        | parameter_list ',' parameter_declaration
-    """
-
-def p_parameter_declaration(p):
-    """
-    parameter_declaration : declaration_specifiers declarator
-        | declaration_specifiers abstract_declarator
-        | declaration_specifiers
-    """
-
-def p_identifier_list(p):
-    """
-    identifier_list : identifier
-        | identifier_list ',' identifier
-    """
-
-def p_type_name(p):
-    """
-    type_name : specifier_qualifier_list abstract_declarator
-        | specifier_qualifier_list
-    """
-
-def p_abstract_declarator(p):
-    """
-    abstract_declarator : pointer direct_abstract_declarator
-        | pointer
-        | direct_abstract_declarator
-    """
-
-def p_direct_abstract_declarator(p):
-    """
-    direct_abstract_declarator : '(' abstract_declarator ')'
-        | '[' ']'
-        | '[' '*' ']'
-        | '[' assignment_expression ']'
-        | direct_abstract_declarator '[' ']'
-        | direct_abstract_declarator '[' '*' ']'
-        | direct_abstract_declarator '[' assignment_expression ']'
-        | '(' ')'
-        | '(' parameter_type_list ')'
-        | direct_abstract_declarator '(' ')'
-        | direct_abstract_declarator '(' parameter_type_list ')'
-    """
 
 def p_initializer(p):
     """
@@ -725,6 +657,15 @@ def p_initializer(p):
         | '{' initializer_list ',' '}'
         | assignment_expression
     """
+    if len(p) == 2:
+        p[0] = p[1]
+    elif len(p) == 4:
+        p[0] = p[2]
+    elif len(p) == 5:
+        p[0] = p[2]
+    else:
+        raise Exception
+
 
 def p_initializer_list(p):
     """
@@ -733,22 +674,141 @@ def p_initializer_list(p):
         | initializer_list ',' designation initializer
         | initializer_list ',' initializer
     """
+    if len(p) == 2:
+        init_list = InitializerList()
+        init_list.append({'initializer': p[1], 'designation': None})
+        p[0] = init_list
+    elif len(p) == 3:
+        init_list = InitializerList()
+        init_list.append({'initializer': p[2], 'designation': p[1]})
+        p[0] = init_list
+    elif len(p) == 4:
+        p[1].append({'initializer': p[3], 'designation': None})
+        p[0] = p[1]
+    elif len(p) == 5:
+        p[1].append({'initializer': p[4], 'designation': p[3]})
+        p[0] = p[1]
+    else:
+        raise Exception
 
-def p_designation(p):
-    """
-    designation : designator_list '='
-    """
 
-def p_designator_list(p):
+def p_init_declarator(p):
     """
-    designator_list : designator
-        | designator_list designator
+    init_declarator : declarator '=' initializer
+        | declarator
     """
+    if len(p) == 2:
+        p[0] = p[1]
+    elif len(p) == 4:
+        p[0] = InitDeclarator(declarator=p[1], initializer=p[3])
+    else:
+        raise Exception
 
-def p_designator(p):
+
+def p_init_declarator_list(p):
     """
-    designator : '[' constant_expression ']'
+    init_declarator_list : init_declarator
+        | init_declarator_list ',' init_declarator
     """
+    if len(p) == 2:
+        init_dec_list = InitDeclaratorList()
+        init_dec_list.append(p[1])
+        p[0] = p[1]
+    elif len(p) == 3:
+        p[1].append(p[3])
+        p[0] = p[1]
+    else:
+        raise Exception
+
+
+def p_parameter_declaration(p):
+    """
+    parameter_declaration : declaration_specifiers declarator
+        | declaration_specifiers abstract_declarator
+        | declaration_specifiers
+    """
+    # decl_specifiers + delarator : ex) 'int a[]' or 'int *a'. 'int[] a' is illegal.
+    # TODO: support abstract declarator? i.e. int[] ?
+    if len(p) == 2:
+        p[0] = ParameterDeclaration(dec_specs=p[1])
+    elif len(p) == 3:
+        p[0] = ParameterDeclaration(dec_specs=p[1], declarator=p[2])  # covers abstract declarator
+    else:
+        raise Exception
+
+
+def p_direct_abstract_declarator(p):
+    """
+    direct_abstract_declarator : '(' abstract_declarator ')'
+        | '[' ']'
+        | '[' assignment_expression ']'
+        | direct_abstract_declarator '[' ']'
+        | direct_abstract_declarator '[' assignment_expression ']'
+        | '(' ')'
+        | '(' parameter_type_list ')'
+        | direct_abstract_declarator '(' ')'
+        | direct_abstract_declarator '(' parameter_type_list ')'
+    """
+    # abstract declarators are declarators without identifiers
+    # it is used for casting, or as arguments of sizeof()
+    # see : https://msdn.microsoft.com/en-us/library/b198y5xs.aspx
+    # TODO: support?
+
+
+def p_abstract_declarator(p):
+    """
+    abstract_declarator : pointer direct_abstract_declarator
+        | pointer
+        | direct_abstract_declarator
+    """
+    # TODO: support?
+
+
+def p_specifier_qualifier_list(p):
+    """
+    specifier_qualifier_list : type_specifier specifier_qualifier_list
+        | type_specifier
+        | specifier_qualifier_list
+    """
+    # list of int float void
+    if len(p) == 2:
+        if isinstance(p[1], list):
+            spec_qual_list = SpecifierQualifierList()
+            spec_qual_list.append(p[1])
+            p[0] = spec_qual_list
+        else:
+            p[0] = p[1]
+    elif len(p) == 3:
+        p[2].append(p[1])
+        p[0] = p[2]
+    else:
+        raise Exception
+
+
+def p_parameter_type_list(p):
+    """
+    parameter_type_list : parameter_list
+    """
+    # same as parameter list
+    p[0] = p[1]
+
+
+def p_parameter_list(p):
+    """
+    parameter_list : parameter_declaration
+        | parameter_list ',' parameter_declaration
+    """
+    # [int a[], int count]
+    if len(p) == 2:
+        param_list = ParameterList()
+        param_list.append(p[1])
+        p[0] = param_list
+    elif len(p) == 4:
+        p[1].append(p[3])
+        p[0] = p[1]
+    else:
+        raise Exception
+
 
 def p_statement(p):
     """
@@ -758,36 +818,74 @@ def p_statement(p):
         | iteration_statement
         | jump_statement
     """
+    # statements are those that end with ';'
+    p[0] = p[1]
+
 
 def p_compound_statement(p):
     """
     compound_statement : '{' '}'
         | '{'  block_item_list '}'
     """
+    if len(p) == 3:
+        p[0] = CompoundStatement()
+    elif len(p) == 4:
+        compound_statement = CompoundStatement()
+        p[0] = p[2]  # block item list should be represented as CompundStatement
+    else:
+        raise Exception
+
 
 def p_block_item_list(p):
     """
     block_item_list : block_item
         | block_item_list block_item
     """
+    if len(p) == 2:
+        compound_statement = CompoundStatement()
+        compound_statement.append(p[1])
+        p[0] = compound_statement
+    elif len(p) == 3:
+        p[1].append(p[2])
+        p[0] = p[1]
+    else:
+        raise Exception
+
 
 def p_block_item(p):
     """
     block_item : declaration
         | statement
     """
+    p[0] = p[1]
+
 
 def p_expression_statement(p):
     """
     expression_statement : ';'
         | expression ';'
     """
+    if len(p) == 2:
+        p[0] = ExpressionStatement()
+    elif len(p) == 3:
+        p[0] = ExpressionStatement(expr=p[1])
+    else:
+        raise Exception
+
 
 def p_selection_statement(p):
     """
     selection_statement : IF '(' expression ')' statement ELSE statement
         | IF '(' expression ')' statement
     """
+    # if-else clauses
+    if len(p) == 6:
+        p[0] = SelectionStatement(if_cond=p[3], if_expr=p[5])
+    elif len(p) == 8:
+        p[0] = SelectionStatement(if_cond=p[3], if_expr=p[5], else_expr=p[7])
+    else:
+        raise Exception
+
 
 def p_iteration_statement(p):
     """
@@ -797,14 +895,31 @@ def p_iteration_statement(p):
         | FOR '(' declaration expression_statement ')' statement
         | FOR '(' declaration expression_statement expression ')' statement
     """
+    if len(p) == 6:
+        p[0] = IterationStatement(iter_type='while', exp1=p[3], body=statement)
+    elif len(p) == 7:
+        if isinstance(p[4], Statement):
+            p[0] = IterationStatement(iter_type='for', exp2=p[3], exp3=p[4], body=p[6])
+        else:
+            p[0] = IterationStatement(iter_type='for', exp1=p[3], exp2=p[4], body=p[6])
+    elif len(p) == 8:
+        pass  # TODO
+    else:
+        raise Exception
+
 
 def p_jump_statement(p):
     """
-    jump_statement : CONTINUE ';'
-        | BREAK ';'
-        | RETURN ';'
+    jump_statement : RETURN ';'
         | RETURN expression ';'
     """
+    if len(p) == 3:
+        p[0] = JumpStatement()
+    elif len(p) == 4:
+        p[0] = JumpStatement(what=p[2])
+    else:
+        raise Exception
+
 
 def p_translation_unit(p):
     """
@@ -812,6 +927,16 @@ def p_translation_unit(p):
         | translation_unit external_declaration
     """
     # starting point
+    if len(p) == 2:
+        translation_unit = TranslationUnit()
+        translation_unit.append(p[1])
+        p[0] = translation_unit
+    elif len(o) == 3:
+        p[1].append(p[2])
+        p[0] = p[1]
+    else:
+        raise Exception
+
 
 def p_external_declaration(p):
     """
@@ -820,17 +945,15 @@ def p_external_declaration(p):
     """
     p[0] = p[1]
 
+
 def p_function_definition(p):
     """
-    function_definition : declaration_specifiers declarator declaration_list compound_statement
-        | declaration_specifiers declarator compound_statement
+    function_definition : declaration_specifiers declarator compound_statement
     """
+    # declaration-list style function definition not supported!
+    # see: https://stackoverflow.com/questions/1585390/c-function-syntax-parameter-types-declared-after-parameter-list
+    p[0] = FunDef(return_type=p[1], name_params=p[2], body=p[3])
 
-def p_declaration_list(p):
-    """
-    declaration_list : declaration
-        | declaration_list declaration
-    """
 
 # error rule
 def p_error(p):

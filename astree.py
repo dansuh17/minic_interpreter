@@ -34,6 +34,14 @@ class String(AstNode):
     def __init__(self, string):
         self.string = string
 
+class Type(AstNode):
+    """
+    Represents a C type specifier.
+    ex) int, float, void
+    """
+    def __init__(self, value):
+        sefl.value = value
+
 
 class UnaryExpr(AstNode):
     """
@@ -65,7 +73,7 @@ class ArgList(AstNode, list):
     ex) add(1, 2) where arglist = [1, 2]
     """
     def __init__(self, argument_list):
-        self.argument_list = super().__init__(argument_list)
+        self.argument_list = super().__init__(self, argument_list)
 
     def children(self):
         children_nodes = []
@@ -146,7 +154,7 @@ class Expression(AstNode, list):
     ex2) a = 1, b = 3, a && b
     """
     def __init__(self, expr_list):
-        super().__init__(expr_list)
+        super().__init__(self, expr_list)
 
 
 class Declaration(AstNode):
@@ -159,10 +167,9 @@ class Declaration(AstNode):
         self.declaration_spec = declaration_spec
         self.init_dec_list = init_dec_list
 
-
-class TypeSpecifiers(AstNode, list):
-    def __init__(self, type_spec_list):
-        super().__init__(type_spec_list)
+class DeclarationSpecifiers(AstNode, list):
+    def __init__(self):
+        super().__init__(self)
 
 
 class Pointer(AstNode):
@@ -181,12 +188,124 @@ class Declarator(AstNode):
 
 class ArrayDeclarator(AstNode, Declarator):
     def __init__(self, of, pointer=None, assignment_expr=None):
-        super().__init__(of, pointer)
+        super().__init__(self, of, pointer)
         self.assignment_expr = assignment_expr
 
 
 class FuncDeclarator(AstNode, Declarator):
     def __init__(self, of, pointer=None, param_type_list=None):
-        super().__init__(of, pointer)
+        super().__init__(self, of, pointer)
         self.param_type_list = param_type_list
         self.id_list = id_list
+
+
+class InitDeclarator(AstNode):
+    def __init__(self, declarator: Declarator, initializer):
+        self.declarator = declarator
+        self.initializer = initializer
+
+class InitDeclaratorList(AstNode, list):
+    def __init__(self):
+        super().__init__(self)
+
+
+class Designators(AstNode, list):
+    def __init__(self, first_designator):
+        super().__init__(self)
+        self.append(designator)
+
+
+class InitializerList(AstNode, list):
+    def __init__(self, first_initializer):
+        super().__init__(self)
+
+
+class ParameterDeclaration(AstNode):
+    def __init__(self, dec_specs, declarator=None):
+        self.dec_specs = dec_specs
+        self.declarator = declarator
+
+
+class SpecifierQualifierList(AstNode, list):
+    def __init__(self):
+        super().__init__()
+
+
+class ParameterList(AstNode, list):
+    def __init__(self):
+        super().__init__()
+
+
+class CompoundStatement(AstNode, list):
+    # list of statements enclosed by braces
+    def __init__(self):
+        super().__init__()
+
+
+class Statement(AstNode):
+    def __init__(self):
+        pass
+
+    def evaluate(self):
+        pass
+
+
+class SelectionStatement(Statement):
+    """
+    If-else statements.
+    """
+    def __init__(self, if_cond, if_expr, else_expr=None):
+        super().__init__()
+        self.if_expr = if_expr
+        self.else_expr = else_expr
+
+    def evaluate(self):
+        # TODO
+        pass
+
+
+class ExpressionStatement(Statement):
+    """
+    Any expressions that ends with ';'.
+    """
+    def __init__(self, expr=None):
+        self.expr = expr
+
+
+class IterationStatement(Statement):
+    """
+    For- or while-loops.
+    """
+    def __init__(self, iter_type, exp1, exp2, exp3, body):
+        self.iter_type = iter_type  # 'for' or 'while'
+        self.exp1 = exp1  # 1st part of for-condition or while-condition
+        self.exp2 = exp2  # 2nd part of for-condition
+        self.exp3 = exp4  # 3rd part of for-condition
+        self.body = body
+
+
+class JumpStatement(Statement):
+    """
+    Return statements.
+    """
+    def __init__(self, what=None):
+        self.what = what
+
+
+class TranslationUnit(AstNode, list):
+    """
+    Starting point for C grammar - contains function definitions and declarations.
+    """
+    def __init__(self):
+        super().__init__()
+
+
+class FunDef(AstNode):
+    """
+    Function definition.
+    """
+    def __init__(self, return_type, name_params, body):
+        self.return_type = return_type
+        self.name_params = name_params
+        self.body = body
+
