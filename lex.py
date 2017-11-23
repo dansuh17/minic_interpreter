@@ -37,7 +37,7 @@ literals = ['=', '(', ')', '+', '*', '-',
 tokens = tokens + list(reserved.values())
 
 # regular expressions for simple tokens
-t_STRING_LITERAL = r'\"()\"'  # TODO: ??
+t_STRING_LITERAL = r'\".*\"'  # TODO: ??
 t_EQUALS = r'=='
 t_NEQUALS = r'\!='
 t_GEQ = r'>='
@@ -88,6 +88,12 @@ lexer = lex.lex()
 
 # tokenize
 data = '3 + 4 ++ 9 == 100 abc19 .1'  # TEST
+data = ''
+with open('test.c', 'r') as f:
+    for lin in f.readlines():
+        data += lin
+
+print(data)
 lexer.input(data)
 for tok in lexer:
     print(tok)
