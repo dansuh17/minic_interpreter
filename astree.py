@@ -5,8 +5,13 @@ class AstNode:
     def evaluate(self):
         pass  # TODO
 
-    def pre_order_traverse(self):
-        pass
+    def show(self, depth=0):
+        print('{}{}'.format('----' * depth, self))
+        for child_node in self.children():
+            child_node.show(depth + 1)
+
+    def __str__(self):
+        return '{}'.format(self.__class__.__name__)
 
 
 class Id(AstNode):
@@ -17,6 +22,9 @@ class Id(AstNode):
     def __init__(self, name):
         self.name = name
 
+    def __str__(self):
+        return '{}(name={})'.format(super().__str__(), self.name)
+
 
 class Constant(AstNode):
     """
@@ -26,6 +34,21 @@ class Constant(AstNode):
         self.value = value
         self.const_type = 'int' if isinstance(value, int) else 'float'
 
+    def __str__(self):
+        return '{}(val={}, type={})'.format(
+                super().__str__(), self.value, self.const_type)
+
+
+class Op(AstNode):
+    """
+    An operator.
+    """
+    def __init__(self, op):
+        self.op = op
+
+    def __str__(self):
+        return '{}(op="{}")'.format(super().__str__(), self.op)
+
 
 class String(AstNode):
     """
@@ -34,13 +57,20 @@ class String(AstNode):
     def __init__(self, string):
         self.string = string
 
+    def __str__(self):
+        return '{}(string={})'.format(super().__str__(), self.string)
+
+
 class Type(AstNode):
     """
     Represents a C type specifier.
     ex) int, float, void
     """
     def __init__(self, value):
-        sefl.value = value
+        self.value = value
+
+    def __str__(self):
+        return '{}(value={})'.format(super().__str__(), self.value)
 
 
 class UnaryExpr(AstNode):
@@ -52,7 +82,7 @@ class UnaryExpr(AstNode):
     def __init__(self, op_name, operand, is_postfix: bool):
         self.op_name = op_name
         self.operand = operand
-        slef.is_postfix = is_postfix
+        self.is_postfix = is_postfix
 
     def children(self):
         children_nodes = []
@@ -60,11 +90,27 @@ class UnaryExpr(AstNode):
             children_nodes.append(self.operand)
         return children_nodes
 
+    def __str__(self):
+        return '{}(op="{}", postfix={})'.format(super().__str__(), self.op_name, self.is_postfix)
+
 
 class FunctionCall(AstNode):
+    """
+    Calling a function.
+    """
     def __init__(self, func_name, argument_list):
         self.func_name = func_name
         self.argument_list = argument_list
+
+    def children(self):
+        ch_nodes = []
+        if self.func_name is not None:
+            assert isinstance(self.func_name, AstNode)
+            ch_nodes.append(self.func_name)
+        if self.argument_list is not None:
+            assert isinstance(self.argument_list, AstNode)
+            ch_nodes.append(self.argument_list)
+        return ch_nodes
 
 
 class ArgList(AstNode, list):
@@ -73,7 +119,7 @@ class ArgList(AstNode, list):
     ex) add(1, 2) where arglist = [1, 2]
     """
     def __init__(self, argument_list):
-        self.argument_list = super().__init__(self, argument_list)
+        self.argument_list = super().__init__(argument_list)
 
     def children(self):
         children_nodes = []
@@ -135,6 +181,7 @@ class BinaryOp(AstNode):
             children_nodes.append(self.arg1)
         if self.arg2 is not None and isinstance(self.arg2, AstNode):
             children_nodes.append(self.arg2)
+        return children_nodes
 
 
 class Assignment(AstNode):
@@ -146,6 +193,16 @@ class Assignment(AstNode):
         self.lvalue = lvalue
         self.rvalue = rvalue
 
+    def children(self):
+        ch_nodes = []
+        if self.lvalue is not None:
+            assert isinstance(self.lvalue, AstNode)
+            ch_nodes.append(self.lvalue)
+        if self.rvalue is not None:
+            assert isinstance(self.rvalue, AstNode)
+            ch_nodes.append(self.rvalue)
+        return ch_nodes
+
 
 class Expression(AstNode, list):
     """
@@ -154,7 +211,14 @@ class Expression(AstNode, list):
     ex2) a = 1, b = 3, a && b
     """
     def __init__(self, expr_list):
-        super().__init__(self, expr_list)
+        super().__init__(expr_list)
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class Declaration(AstNode):
@@ -163,83 +227,206 @@ class Declaration(AstNode):
     It consists of specifiers and initial declaration list.
     ex) int c, a, x;
     """
-    def __init__(self, declaration_spec, init_dec_list=[]):
+    def __init__(self, declaration_spec, init_dec_list):
         self.declaration_spec = declaration_spec
         self.init_dec_list = init_dec_list
 
+    def children(self):
+        ch_nodes = []
+        if self.declaration_spec is not None and isinstance(self.declaration_spec, AstNode):
+            ch_nodes.append(self.declaration_spec)
+        if self.init_dec_list is not None and isinstance(self.init_dec_list, AstNode):
+            ch_nodes.append(self.init_dec_list)
+        return ch_nodes
+
+
 class DeclarationSpecifiers(AstNode, list):
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class Pointer(AstNode):
+    """
+    The pointer notation ('*').
+    """
     def __init__(self):
         self.order = 1
 
     def append_pointer(self):
         self.order += 1
 
+    def __str__(self):
+        return '{}(order:{}, {})'.format(
+                super().__str__(), self.order, '*' * self.order)
+
 
 class Declarator(AstNode):
     def __init__(self, of, pointer=None):
         self.of = of  # declarator of ...
+        assert of is not None
         self.pointer = pointer
 
+    def children(self):
+        ch_nodes = []
+        ch_nodes.append(self.of)
+        if self.pointer is not None and isinstance(self.pointer, AstNode):
+            ch_nodes.append(self.pointer)
+        return ch_nodes
 
-class ArrayDeclarator(AstNode, Declarator):
+
+class ArrayDeclarator(Declarator):
+    """
+    Array delcarator.
+    ex) c[4], where c = Declarator and 4 = AssignmentExpression
+    """
     def __init__(self, of, pointer=None, assignment_expr=None):
-        super().__init__(self, of, pointer)
+        super().__init__(of, pointer)
         self.assignment_expr = assignment_expr
 
+    def children(self):
+        ch_nodes = super().children()
+        if self.assignment_expr is not None:
+            assert isinstance(self.assignment_expr, AstNode)
+            ch_nodes.append(self.assignment_expr)
+        return ch_nodes
 
-class FuncDeclarator(AstNode, Declarator):
+
+class FuncDeclarator(Declarator):
+    """
+    Declarator of function (it's name) such as 'avg' or 'main'.
+    """
     def __init__(self, of, pointer=None, param_type_list=None):
-        super().__init__(self, of, pointer)
+        super().__init__(of, pointer)
         self.param_type_list = param_type_list
-        self.id_list = id_list
+
+    def children(self):
+        ch_nodes = super().children()
+        if self.param_type_list is not None and isinstance(self.param_type_list, AstNode):
+            ch_nodes.append(self.param_type_list)
+        return ch_nodes
 
 
 class InitDeclarator(AstNode):
+    """
+    Declaration that are initialized.
+    ex) 'sum = 0' translates into Declarator(sum) + Initializer(0)
+    """
     def __init__(self, declarator: Declarator, initializer):
         self.declarator = declarator
         self.initializer = initializer
 
+    def children(self):
+        ch_nodes = []
+        if self.declarator is not None and isinstance(self.declarator, AstNode):
+            ch_nodes.append(self.declarator)
+        if self.initializer is not None and isinstance(self.initializer, AstNode):
+            ch_nodes.append(self.initializer)
+
+        return ch_nodes
+
 class InitDeclaratorList(AstNode, list):
+    """
+    List of initialized declarators.
+    """
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class Designators(AstNode, list):
     def __init__(self, first_designator):
-        super().__init__(self)
+        super().__init__()
         self.append(designator)
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class InitializerList(AstNode, list):
     def __init__(self, first_initializer):
-        super().__init__(self)
+        super().__init__()
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class ParameterDeclaration(AstNode):
+    """
+    Parameter declaration like those in function declaration.
+    Dec_specs are delcaration specifiers, such as types of declarator.
+    The declarator is the name of the parameter.
+
+    ex) 'int count' translates to DeclarationSpecifiers(int) + Declarator(count)
+    """
     def __init__(self, dec_specs, declarator=None):
         self.dec_specs = dec_specs
         self.declarator = declarator
+
+    def children(self):
+        ch_nodes = []
+        if self.dec_specs is not None and isinstance(self.dec_specs, AstNode):
+            ch_nodes.append(self.dec_specs)
+        if self.declarator is not None and isinstance(self.declarator, AstNode):
+            ch_nodes.append(self.declarator)
+        return ch_nodes
 
 
 class SpecifierQualifierList(AstNode, list):
     def __init__(self):
         super().__init__()
 
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
+
 
 class ParameterList(AstNode, list):
     def __init__(self):
         super().__init__()
 
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
+
 
 class CompoundStatement(AstNode, list):
-    # list of statements enclosed by braces
+    # list of statements enclosed by braces, such as function bodies.
     def __init__(self):
         super().__init__()
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class Statement(AstNode):
@@ -256,12 +443,26 @@ class SelectionStatement(Statement):
     """
     def __init__(self, if_cond, if_expr, else_expr=None):
         super().__init__()
+        self.if_cond = if_cond
         self.if_expr = if_expr
         self.else_expr = else_expr
 
     def evaluate(self):
         # TODO
         pass
+
+    def children(self):
+        ch_nodes = []
+        if self.if_cond is not None:
+            assert isinstance(self.if_cond, AstNode)
+            ch_nodes.append(self.if_cond)
+        if self.if_expr is not None:
+            assert isinstance(self.if_expr, AstNode)
+            ch_nodes.append(self.if_expr)
+        if self.if_cond is not None:
+            assert isinstance(self.if_cond, AstNode)
+            ch_nodes.append(self.if_cond)
+        return ch_nodes
 
 
 class ExpressionStatement(Statement):
@@ -270,6 +471,11 @@ class ExpressionStatement(Statement):
     """
     def __init__(self, expr=None):
         self.expr = expr
+
+    def children(self):
+        if self.expr is not None:
+            assert isinstance(self.expr, AstNode)
+        return [self.expr]
 
 
 class IterationStatement(Statement):
@@ -280,8 +486,28 @@ class IterationStatement(Statement):
         self.iter_type = iter_type  # 'for' or 'while'
         self.exp1 = exp1  # 1st part of for-condition or while-condition
         self.exp2 = exp2  # 2nd part of for-condition
-        self.exp3 = exp4  # 3rd part of for-condition
+        self.exp3 = exp3  # 3rd part of for-condition
         self.body = body
+
+    def children(self):
+        ch_nodes = []
+        if self.exp1 is not None:
+            assert isinstance(self.exp1, AstNode)
+            ch_nodes.append(self.exp1)
+        if self.exp2 is not None:
+            assert isinstance(self.exp2, AstNode)
+            ch_nodes.append(self.exp2)
+        if self.exp3 is not None:
+            assert isinstance(self.exp3, AstNode)
+            ch_nodes.append(self.exp3)
+        if self.body is not None:
+            assert isinstance(self.body, AstNode)
+            ch_nodes.append(self.body)
+        return ch_nodes
+
+
+    def __str__(self):
+        return '{}(type={})'.format(super().__str__(), self.iter_type)
 
 
 class JumpStatement(Statement):
@@ -291,6 +517,12 @@ class JumpStatement(Statement):
     def __init__(self, what=None):
         self.what = what
 
+    def children(self):
+        ch_nodes = []
+        if self.what is not None and isinstance(self.what, AstNode):
+            ch_nodes.append(self.what)
+        return ch_nodes
+
 
 class TranslationUnit(AstNode, list):
     """
@@ -298,6 +530,13 @@ class TranslationUnit(AstNode, list):
     """
     def __init__(self):
         super().__init__()
+
+    def children(self):
+        children_nodes = []
+        for child in self:
+            if child is not None and isinstance(child, AstNode):
+                children_nodes.append(child)
+        return children_nodes
 
 
 class FunDef(AstNode):
@@ -309,3 +548,12 @@ class FunDef(AstNode):
         self.name_params = name_params
         self.body = body
 
+    def children(self):
+        children_nodes = []
+        if self.return_type is not None and isinstance(self.return_type, AstNode):
+            children_nodes.append(self.return_type)
+        if self.name_params is not None and isinstance(self.name_params, AstNode):
+            children_nodes.append(self.name_params)
+        if self.body is not None and isinstance(self.body, AstNode):
+            children_nodes.append(self.body)
+        return children_nodes

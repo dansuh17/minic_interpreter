@@ -41,8 +41,12 @@ unary_expression
     | MMINUS unary_expression
     | PPLUS unary_expression
 
+type_name
+    : specifier_qualifier_list
+
 cast_expression
     : unary_expression
+    | '(' type_name ')' cast_expression
 
 multiplicative_expression
     : cast_expression
@@ -284,6 +288,12 @@ def p_string(p):
     """
     p[0] = String(string=p[1])
 
+def p_type_name(p):
+    """
+    type_name : specifier_qualifier_list
+    """
+    # int or float
+    p[0] = p[1]
 
 def p_postfix_expression(p):
     """
@@ -340,9 +350,12 @@ def p_unary_expression(p):
 def p_cast_expression(p):
     """
     cast_expression : unary_expression
+        | '(' type_name ')' cast_expression
     """
     if len(p) == 2:
         p[0] = p[1]
+    elif len(p) == 5:
+        p[0] = TypeCast(type_name=p[2], cast_expr=p[4])
     else:
         raise Exception
 
@@ -357,7 +370,7 @@ def p_multiplicative_expression(p):
     if len(p) == 2:
         p[0] = p[1]
     elif len(p) == 4:
-        p[0] = BinaryOp(op=p[2], arg1=p[1], arg2=p[3])
+        p[0] = BinaryOp(op=Op(p[2]), arg1=p[1], arg2=p[3])
     else:
         raise Exception
 
@@ -371,7 +384,7 @@ def p_additive_expression(p):
     if len(p) == 2:
         p[0] = p[1]
     elif len(p) == 4:
-        p[0] = BinaryOp(op=p[2], arg1=p[1], arg2=p[3])
+        p[0] = BinaryOp(op=Op(p[2]), arg1=p[1], arg2=p[3])
     else:
         raise Exception
 
@@ -395,7 +408,7 @@ def p_relational_expression(p):
     if len(p) == 2:
         p[0] = p[1]
     elif len(p) == 4:
-        p[0] = BinaryOp(op=p[2], arg1=p[1], arg2=p[3])
+        p[0] = BinaryOp(op=Op(p[2]), arg1=p[1], arg2=p[3])
     else:
         raise Exception
 
@@ -409,7 +422,7 @@ def p_equality_expression(p):
     if len(p) == 2:
         p[0] = p[1]
     elif len(p) == 4:
-        p[0] = BinaryOp(op=p[2], arg1=p[1], arg2=p[3])
+        p[0] = BinaryOp(op=Op(p[2]), arg1=p[1], arg2=p[3])
     else:
         raise Exception
 
@@ -583,7 +596,7 @@ def p_direct_declarator(p):
     # asterisk in array definition within function declaration [*] not supported
     # refer: https://stackoverflow.com/questions/17559631/what-are-those-strange-array-sizes-and-static-in-c99
     if len(p) == 2:
-        p[0] = Declarator(name=p[1])
+        p[0] = Declarator(of=p[1])
     elif len(p) == 4:
         if p[1] == '(':
             p[0] = p[2]
@@ -713,8 +726,8 @@ def p_init_declarator_list(p):
     if len(p) == 2:
         init_dec_list = InitDeclaratorList()
         init_dec_list.append(p[1])
-        p[0] = p[1]
-    elif len(p) == 3:
+        p[0] = init_dec_list
+    elif len(p) == 4:
         p[1].append(p[3])
         p[0] = p[1]
     else:
@@ -728,7 +741,6 @@ def p_parameter_declaration(p):
         | declaration_specifiers
     """
     # decl_specifiers + delarator : ex) 'int a[]' or 'int *a'. 'int[] a' is illegal.
-    # TODO: support abstract declarator? i.e. int[] ?
     if len(p) == 2:
         p[0] = ParameterDeclaration(dec_specs=p[1])
     elif len(p) == 3:
@@ -895,15 +907,15 @@ def p_iteration_statement(p):
         | FOR '(' declaration expression_statement ')' statement
         | FOR '(' declaration expression_statement expression ')' statement
     """
-    if len(p) == 6:
+    if len(p) == 6:  # while loop
         p[0] = IterationStatement(iter_type='while', exp1=p[3], body=statement)
-    elif len(p) == 7:
+    elif len(p) == 7:  # where one of for-conditions are omitted
         if isinstance(p[4], Statement):
             p[0] = IterationStatement(iter_type='for', exp2=p[3], exp3=p[4], body=p[6])
         else:
             p[0] = IterationStatement(iter_type='for', exp1=p[3], exp2=p[4], body=p[6])
     elif len(p) == 8:
-        pass  # TODO
+        p[0] = IterationStatement(iter_type='for', exp1=p[3], exp2=p[4], exp3=p[5], body=p[7])
     else:
         raise Exception
 
@@ -931,7 +943,7 @@ def p_translation_unit(p):
         translation_unit = TranslationUnit()
         translation_unit.append(p[1])
         p[0] = translation_unit
-    elif len(o) == 3:
+    elif len(p) == 3:
         p[1].append(p[2])
         p[0] = p[1]
     else:
@@ -960,13 +972,14 @@ def p_error(p):
     print('Syntax Error!')
 
 parser = yacc.yacc()
-while True:
-    try:
-        s = input('Program')
-    except EOFError:
-        break
-    if not s:
-        continue
-    result = parser.parse(s)
-    print(result)
-
+try:
+    s = ''
+    with open('test.c', 'r') as f:
+        for l in f.readlines():
+            s += l
+except EOFError:
+    print('EOFError')
+print(s)
+result = parser.parse(s)
+print('Result AST tree')
+result.show()

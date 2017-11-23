@@ -28,6 +28,7 @@ reserved = {
         'continue': 'CONTINUE',
         'int': 'INT',
         'float': 'FLOAT',
+        'void': 'VOID',
 }
 
 # define language literals
