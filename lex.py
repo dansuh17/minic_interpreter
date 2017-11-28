@@ -87,15 +87,15 @@ t_ignore = '\t '
 
 lexer = lex.lex()
 
-# tokenize
-data = '3 + 4 ++ 9 == 100 abc19 .1'  # TEST
-data = ''
-with open('test.c', 'r') as f:
-    for lin in f.readlines():
-        data += lin
+# tokenize example
+# data = '3 + 4 ++ 9 == 100 abc19 .1'  # TEST
+# data = ''
+# with open('test.c', 'r') as f:
+#     for lin in f.readlines():
+#         data += lin
 
-print(data)
-lexer.input(data)
-for tok in lexer:
-    print(tok)
+# print(data)
+# lexer.input(data)
+# for tok in lexer:
+#     print(tok)
 

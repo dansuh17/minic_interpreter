@@ -1,9 +1,41 @@
+from symbol_table import TypeVal, Symbol
+
+
 class AstNode:
+    """
+    Basic class for a node of abstract syntax tree.
+    """
     def children(self):
         return list()
 
-    def evaluate(self):
-        pass  # TODO
+    def __lt__(self, other):
+        if self.startline() < other.startline():
+            return True
+        elif self.startline() > other.startline():
+            return False
+        else:
+            if self.startcol() < other.startcol():
+                return True
+            else:
+                return False
+
+    def startcol(self):
+        return self.lexspan[0]
+
+    def endcol(self):
+        return self.lexspan[1]
+
+    def startline(self):
+        return self.linespan[0]
+
+    def endline(self):
+        return self.linespan[1]
+
+    def execute(self, *args, **kwargs):
+        raise NotImplemented
+
+    def evaluate(self, *args, **kwargs):
+        raise NotImplemented
 
     def show(self, depth=0):
         print('{}{}'.format('----' * depth, self))
@@ -19,11 +51,14 @@ class Id(AstNode):
     Variable names or function names.
     ex) add or is_id
     """
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, id_name):
+        self.id_name = id_name
+
+    def name(self):
+        return self.id_name
 
     def __str__(self):
-        return '{}(name={})'.format(super().__str__(), self.name)
+        return '{}(name={})'.format(super().__str__(), self.id_name)
 
 
 class Constant(AstNode):
@@ -111,6 +146,20 @@ class FunctionCall(AstNode):
             assert isinstance(self.argument_list, AstNode)
             ch_nodes.append(self.argument_list)
         return ch_nodes
+
+    def execute(self, scope, currline, eval_stack):
+        # defer the execution until register is done - register first
+        exec_done = False
+        if currline == self.startline():
+            eval_stack.append(scope.getsymbol(self.func_name).astnode)  # FunDef
+        elif currline == self.endline():
+            exec_done = True
+        else:
+            args = self.argument_list.evaluate()
+            # TODO: check if arguments match the parameter types
+            # TODO: create a new scope, register arguments, and start executing body
+            eval_stack.append(scope.getsymbol(self.func_name).value.body)  # body ast
+        return exec_done
 
 
 class ArgList(AstNode, list):
@@ -241,8 +290,17 @@ class Declaration(AstNode):
 
 
 class DeclarationSpecifiers(AstNode, list):
+    """
+    List of type specifiers.
+    """
     def __init__(self):
         super().__init__()
+
+    def evaluate(self):
+        eval_list = []
+        for child in self.children():
+            eval_list.append(child.value)  # type name
+        return eval_list
 
     def children(self):
         children_nodes = []
@@ -268,10 +326,18 @@ class Pointer(AstNode):
 
 
 class Declarator(AstNode):
+    """
+    Represents direct declarator and declarator (direct declarator with pointers).
+    """
     def __init__(self, of, pointer=None):
         self.of = of  # declarator of ...
-        assert of is not None
         self.pointer = pointer
+
+    def name(self):
+        return self.of.name()  # ID instance or Declarator
+
+    def evaluate(self):
+        return (self.name(), self.pointer.order if self.pointer is not None else 0)
 
     def children(self):
         ch_nodes = []
@@ -305,6 +371,12 @@ class FuncDeclarator(Declarator):
     def __init__(self, of, pointer=None, param_type_list=None):
         super().__init__(of, pointer)
         self.param_type_list = param_type_list
+
+    def evaluate(self):
+        funcname = self.name()
+        num_ptrs = self.pointer.order if self.pointer is not None else 0
+        param_list = self.param_type_list.evaluate()  # ParameterList instance
+        return num_ptrs, funcname, param_list
 
     def children(self):
         ch_nodes = super().children()
@@ -383,6 +455,9 @@ class ParameterDeclaration(AstNode):
         self.dec_specs = dec_specs
         self.declarator = declarator
 
+    def evaluate(self):
+        return (self.dec_specs.evaluate(), self.declarator.evaluate())
+
     def children(self):
         ch_nodes = []
         if self.dec_specs is not None and isinstance(self.dec_specs, AstNode):
@@ -405,8 +480,17 @@ class SpecifierQualifierList(AstNode, list):
 
 
 class ParameterList(AstNode, list):
+    """
+    List of parameters declarations.
+    """
     def __init__(self):
         super().__init__()
+
+    def evaluate(self):
+        param_list = []
+        for param_dec in self.children():
+            param_list.append(param_dec.evaluate())
+        return param_list
 
     def children(self):
         children_nodes = []
@@ -545,8 +629,15 @@ class FunDef(AstNode):
     """
     def __init__(self, return_type, name_params, body):
         self.return_type = return_type
-        self.name_params = name_params
-        self.body = body
+        self.name_params = name_params  # function declarator = declarator(function name) + parameterlist(params)
+        self.body = body  # compund statement
+
+    def name(self):
+        """
+        Retrieve the name of the function.
+        """
+        assert isinstance(self.name_params, FuncDeclarator)
+        return self.name_params.name()
 
     def children(self):
         children_nodes = []
@@ -557,3 +648,26 @@ class FunDef(AstNode):
         if self.body is not None and isinstance(self.body, AstNode):
             children_nodes.append(self.body)
         return children_nodes
+
+    def execute(self, scope, currline, eval_stack):
+        """
+        Execute a function definition - only register the function (return type, name, etc).
+        """
+        exec_done = False
+        if currline == self.body.startline():  # keep the execution until the start of body
+            rtypes = self.return_type.evaluate()  # list of type specifiers
+            rtype_pntr, funname, params = self.name_params.evaluate()  # FuncDeclarator
+
+            # register the symbol in the scope if it does not exist
+            scope.add_symbol(
+                    funname, Symbol(funname, Type('function'), self))
+
+            # create definition information for function
+            funsymbol = scope.getsymbol(funname)
+            typeval = TypeVal(rtypes, rtype_ptr)  # define a type
+            funsymbol.value.rtype = typeval
+            funsymbol.value.params = params
+            funsymbol.value.body = self.body  # ast node - not executed yet - only registered
+        elif currline == self.body.endline():
+            exec_done = True
+        return exec_done
