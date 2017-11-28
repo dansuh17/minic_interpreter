@@ -33,7 +33,6 @@ ast_root.show()
 
 # mark the starting line
 curr_lineno = parser.main_func.linespan[0]  # starting line number of main()
-print(curr_lineno)
 
 # register function names - interpreter only recognizes the name
 # and does not have function closure
@@ -45,16 +44,30 @@ for func in parser.functions:
 scope = root_scope  # current evaluation scope
 
 # evaluation stack - initial stack with function call of main
-exec_stack = [FunctionCall(func_name=String('main'), argument_list=ArgList([]))]
+main_call = FunctionCall(func_name=String('main'), argument_list=ArgList([]))
+main_call.linespan = (curr_lineno, curr_lineno)
+
+exec_stack = [main_call]
 call_stack = []
 env = ExecutionEnvironment(exec_stack, curr_lineno, scope, call_stack)
 
 # evalutaion loop
 while True:
-    input('Next line {}'.format(curr_lineno))  # next line
+    input('Next line {}'.format(env.currline))  # next line
+    print(code_lines[env.currline - 1])
+    currline = env.currline
 
     while True:
+        stacklen = len(exec_stack)
+        print('Executing {}'.format(exec_stack[-1]))
         exec_done, env = exec_stack[-1].execute(env)
-        if not exec_done:
+        print(env.value_stack)
+        if (not exec_done and len(exec_stack) == stacklen) or (currline != env.currline):
             break
-    curr_lineno += 1  # 1 line just for now
+
+    # update line number
+    if currline == env.currline:
+        env.update_currline(1)  # 1 line just for now
+
+    # do booked updates (++, -- used as postfixes)
+    env.exec_booked_updates()
