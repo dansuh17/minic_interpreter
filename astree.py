@@ -1,10 +1,14 @@
 from symbol_table import TypeVal, Symbol
+from environment import *
 
 
 class AstNode:
     """
     Basic class for a node of abstract syntax tree.
     """
+    def __init__(self):
+        self.exec_visited = False
+
     def children(self):
         return list()
 
@@ -52,6 +56,7 @@ class Id(AstNode):
     ex) add or is_id
     """
     def __init__(self, id_name):
+        super().__init__()
         self.id_name = id_name
 
     def name(self):
@@ -66,6 +71,7 @@ class Constant(AstNode):
     ex) 2 or 3.2
     """
     def __init__(self, value):
+        super().__init__()
         self.value = value
         self.const_type = 'int' if isinstance(value, int) else 'float'
 
@@ -79,6 +85,7 @@ class Op(AstNode):
     An operator.
     """
     def __init__(self, op):
+        super().__init__()
         self.op = op
 
     def __str__(self):
@@ -90,6 +97,7 @@ class String(AstNode):
     ex) "string"
     """
     def __init__(self, string):
+        super().__init__()
         self.string = string
 
     def __str__(self):
@@ -102,6 +110,7 @@ class Type(AstNode):
     ex) int, float, void
     """
     def __init__(self, value):
+        super().__init__()
         self.value = value
 
     def __str__(self):
@@ -115,6 +124,7 @@ class UnaryExpr(AstNode):
     ex) i++, ++i
     """
     def __init__(self, op_name, operand, is_postfix: bool):
+        super().__init__()
         self.op_name = op_name
         self.operand = operand
         self.is_postfix = is_postfix
@@ -134,7 +144,8 @@ class FunctionCall(AstNode):
     Calling a function.
     """
     def __init__(self, func_name, argument_list):
-        self.func_name = func_name
+        super().__init__()
+        self.func_name = func_name  # string literal
         self.argument_list = argument_list
 
     def children(self):
@@ -147,19 +158,54 @@ class FunctionCall(AstNode):
             ch_nodes.append(self.argument_list)
         return ch_nodes
 
-    def execute(self, scope, currline, eval_stack):
+    def execute(self, env):
         # defer the execution until register is done - register first
         exec_done = False
-        if currline == self.startline():
-            eval_stack.append(scope.getsymbol(self.func_name).astnode)  # FunDef
-        elif currline == self.endline():
-            exec_done = True
-        else:
-            args = self.argument_list.evaluate()
-            # TODO: check if arguments match the parameter types
-            # TODO: create a new scope, register arguments, and start executing body
-            eval_stack.append(scope.getsymbol(self.func_name).value.body)  # body ast
-        return exec_done
+        funcname = self.func_name.evaluate().val
+
+        if env.currline == self.startline():
+            env.eval_stack.append(env.scope.getsymbol(funcname).astnode)  # FunDef
+
+        if env.currline == self.endline():  # call has been made!
+            if not env.scope.get_return_val():
+                # function has not been executed and returned
+                if env.scope.getvalue(funcname) is None:
+                    raise CRuntimeErr('No function named {} defined.'.format(funcname), env)
+
+                funcval = env.scope.getvalue(funcname)
+                args = self.argument_list.evaluate()  # list of (type, symbol string)
+                params = funcval.params
+                if len(args) != len(params):
+                    raise CRuntimeErr('Argumet number mismatch', env)
+
+                func_scope = Scope({})  # set arguments
+                func_scope.parent_scope = env.scope.root_scope()  # root scope is the parent
+                func_scope.return_lineno = self.startline()
+                func_scope.return_scope = env.scope
+
+                # type check the arguments with prameter declarations
+                for arg, ptype in zip(args, params):
+                    if not arg.vtype.castable(ptype[0]):
+                        raise CRuntimeError('Argument type mismatch', env)
+
+                    # bind argument values to their symbols
+                    argname = ptype[1].val
+                    func_scope.add_symbol(
+                            symbol_name=argname,
+                            symbol_info=Symbol(argname, None))
+                    arg.cast(ptype[0])
+                    func_scope.set_value(argname, arg, env.currline)
+
+                # start executing body
+                env.scope = func_scope
+                eval_stack.append(scope.getsymbol(self.func_name).value.body)
+            else:
+                # execution has been done and returned
+                exec_done = True
+                val = env.scope.get_return_val()
+                env.scope = env.scope.return_scope
+                env.call_stack.pop()
+        return exec_done, val, env
 
 
 class ArgList(AstNode, list):
@@ -168,7 +214,21 @@ class ArgList(AstNode, list):
     ex) add(1, 2) where arglist = [1, 2]
     """
     def __init__(self, argument_list):
+        super().__init__()
+        # argument list is a list of assignment expression
         self.argument_list = super().__init__(argument_list)
+
+    def evaluate(self):
+        """
+        Evaluates a list of assignment expressions.
+
+        assignment_expression : conditional_expression
+            | unary_expression assignment_operator assignment_expression
+        """
+        eval_list = []
+        for child in self.children():
+            eval_list.append(child.evaluate())
+        return eval_list
 
     def children(self):
         children_nodes = []
@@ -182,6 +242,7 @@ class ArgList(AstNode, list):
 
 class ArrayReference(AstNode):
     def __init__(self, name, idx):
+        super().__init__()
         self.name = name
         self.idx = idx
 
@@ -201,6 +262,7 @@ class TypeCast(AstNode):
     ex) (float) 3
     """
     def __init__(self, type_name, cast_expr):
+        super().__init__()
         self.type_name = type_name
         self.cast_expr = cast_expr
 
@@ -218,6 +280,7 @@ class BinaryOp(AstNode):
     Binary operation.
     """
     def __init__(self, op, arg1, arg2):
+        super().__init__()
         self.op = op
         self.arg1 = arg1
         self.arg2 = arg2
@@ -239,6 +302,7 @@ class Assignment(AstNode):
     ex) a = 1
     """
     def __init__(self, lvalue, rvalue):
+        super().__init__()
         self.lvalue = lvalue
         self.rvalue = rvalue
 
@@ -277,6 +341,7 @@ class Declaration(AstNode):
     ex) int c, a, x;
     """
     def __init__(self, declaration_spec, init_dec_list):
+        super().__init__()
         self.declaration_spec = declaration_spec
         self.init_dec_list = init_dec_list
 
@@ -315,6 +380,7 @@ class Pointer(AstNode):
     The pointer notation ('*').
     """
     def __init__(self):
+        super().__init__()
         self.order = 1
 
     def append_pointer(self):
@@ -330,6 +396,7 @@ class Declarator(AstNode):
     Represents direct declarator and declarator (direct declarator with pointers).
     """
     def __init__(self, of, pointer=None):
+        super().__init__()
         self.of = of  # declarator of ...
         self.pointer = pointer
 
@@ -391,6 +458,7 @@ class InitDeclarator(AstNode):
     ex) 'sum = 0' translates into Declarator(sum) + Initializer(0)
     """
     def __init__(self, declarator: Declarator, initializer):
+        super().__init__()
         self.declarator = declarator
         self.initializer = initializer
 
@@ -452,6 +520,7 @@ class ParameterDeclaration(AstNode):
     ex) 'int count' translates to DeclarationSpecifiers(int) + Declarator(count)
     """
     def __init__(self, dec_specs, declarator=None):
+        super().__init__()
         self.dec_specs = dec_specs
         self.declarator = declarator
 
@@ -515,6 +584,7 @@ class CompoundStatement(AstNode, list):
 
 class Statement(AstNode):
     def __init__(self):
+        super().__init__()
         pass
 
     def evaluate(self):
@@ -554,6 +624,7 @@ class ExpressionStatement(Statement):
     Any expressions that ends with ';'.
     """
     def __init__(self, expr=None):
+        super().__init__()
         self.expr = expr
 
     def children(self):
@@ -567,6 +638,7 @@ class IterationStatement(Statement):
     For- or while-loops.
     """
     def __init__(self, iter_type, exp1, exp2, exp3, body):
+        super().__init__()
         self.iter_type = iter_type  # 'for' or 'while'
         self.exp1 = exp1  # 1st part of for-condition or while-condition
         self.exp2 = exp2  # 2nd part of for-condition
@@ -599,6 +671,7 @@ class JumpStatement(Statement):
     Return statements.
     """
     def __init__(self, what=None):
+        super().__init__()
         self.what = what
 
     def children(self):
@@ -628,6 +701,7 @@ class FunDef(AstNode):
     Function definition.
     """
     def __init__(self, return_type, name_params, body):
+        super().__init__()
         self.return_type = return_type
         self.name_params = name_params  # function declarator = declarator(function name) + parameterlist(params)
         self.body = body  # compund statement
@@ -649,25 +723,24 @@ class FunDef(AstNode):
             children_nodes.append(self.body)
         return children_nodes
 
-    def execute(self, scope, currline, eval_stack):
+    def execute(self, env: ExecutionEnvironment):
         """
-        Execute a function definition - only register the function (return type, name, etc).
+        Execute a function definition.
+        Unlike most other interpreters, the functions are defined as soon as it is called
+        (to avoid premature syntax errors).
+        So it is done executed as soon as the body section starts.
         """
         exec_done = False
-        if currline == self.body.startline():  # keep the execution until the start of body
+        if env.currline == self.body.startline():  # keep the execution until the start of body
             rtypes = self.return_type.evaluate()  # list of type specifiers
             rtype_pntr, funname, params = self.name_params.evaluate()  # FuncDeclarator
 
             # register the symbol in the scope if it does not exist
-            scope.add_symbol(
-                    funname, Symbol(funname, Type('function'), self))
-
-            # create definition information for function
-            funsymbol = scope.getsymbol(funname)
-            typeval = TypeVal(rtypes, rtype_ptr)  # define a type
-            funsymbol.value.rtype = typeval
-            funsymbol.value.params = params
-            funsymbol.value.body = self.body  # ast node - not executed yet - only registered
-        elif currline == self.body.endline():
+            env.scope.add_symbol(funname, Symbol(funname, self))
+            if env.scope.getvalue(funname) is None:
+                env.scope.set_value(
+                        funname,
+                        FunctionVal(rtypes, params, self.body),
+                        self.startline())
             exec_done = True
-        return exec_done
+        return exec_done, env
