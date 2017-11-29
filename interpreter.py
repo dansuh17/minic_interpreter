@@ -61,7 +61,13 @@ while True:
         stacklen = len(exec_stack)
         print('Executing {}'.format(exec_stack[-1]))
         exec_done, env = exec_stack[-1].execute(env)
-        print(env.value_stack)
+
+        stack_val_print = ''
+        for stack_val in env.value_stack:
+            stack_val_print += (stack_val.__repr__() + ' :: ')
+        print(stack_val_print)
+        # print([ast.linespan for ast in env.exec_stack])
+        # print(exec_stack[-1].linespan)
         if (not exec_done and len(exec_stack) == stacklen) or (currline != env.currline):
             break
 

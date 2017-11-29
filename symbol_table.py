@@ -2,10 +2,20 @@ class Value:
     def __init__(self, vtype, val=None):
         assert isinstance(vtype, TypeVal)
         self.vtype = vtype  # TypeVal instance
+        if val == None:
+            # default values for certain types
+            if vtype.typename == 'float':
+                val = 0.0
+            elif vtype.typename == 'int':
+                val = 0
         self.val = val  # the actual value (numbers, string literals, or None)
+        self.arr_size = None
 
     def __str__(self):
         return 'Value(type {}, val {})'.format(self.vtype, self.val)
+
+    def __repr__(self):
+        return self.__str__()
 
     def cast(self, casttype):
         if casttype.typename == 'float':
@@ -102,3 +112,47 @@ class Scope:
             return self
         else:
             return self.parent_scope.root_scope()
+
+
+class DeclaratorVal:
+    """
+    Value class for declarators - can be a nested combination of declarators.
+    """
+    def __init__(self, dec_type, of_val, pointer_val):
+        self.dec_type = dec_type  # default, array, or function
+        self.of_val = of_val
+        self.pointer_val = pointer_val
+        self.arr_size_val = None  # for ArrayDeclarator
+        self.param_typelist_val =  None  # for FuncDeclarator
+
+    def getsymbol(self):
+        if isinstance(self.of_val, Symbol):
+            return self.of_val
+        else:
+            return self.of_val.getsymbol()
+
+    def __repr__(self):
+        if self.dec_type == 'default':
+            rep = 'DecVal_{}(of: {}, ptr: {})'.format(
+                    self.dec_type, self.of_val, self.pointer_val)
+        elif self.dec_type == 'array':
+            rep = 'DecVal_{}(of: {}, ptr: {}, arr: {})'.format(
+                    self.dec_type, self.of_val, self.pointer_val, self.arr_size_val)
+        elif self.dec_type == 'function':
+            rep = 'DecVal_{}(of: {}, ptr: {}, params: {})'.format(
+                    self.dec_type, self.of_val, self.pointer_val, self.param_typelist_val)
+        return rep
+
+
+class AssignmentVal:
+    def __init__(self, lval, rval):
+        self.lval = lval
+        self.rval = rval
+
+    def __repr__(self):
+        return 'Asmt(l {} r {})'.format(self.lval, self.rval)
+
+
+class IterationVal:
+    def __init__(self, itertype):
+        self.itertype = itertype  # while or for
