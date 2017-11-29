@@ -239,6 +239,7 @@ class FunctionCall(AstNode):
                         else:
                             string_lit.replace('%f', str(float(args[1].val)))
                         print(string_lit)
+                env.push_val('Printf')
                 env.pop_exec()  # function call done
                 self.exec_visited = False
                 return True, env
@@ -302,18 +303,16 @@ class FunctionCall(AstNode):
                     env.currline = body_ast.startline()
                     env.call_stack.append(funcval)
                     self.wait_return = True
-                else:
-                    # execution has been done and returned
+                else:  # execution has been done and returned
                     self.wait_return = False
                     exec_done = True
-                    # TODO: type check for return value
                     retval = env.scope.get_return_val()
-                    print(retval)
 
-                    if not retval.vtype.castable(env.scope.return_type):
-                        raise CRuntimeErr('Wrong return type! {} {}'.format(retval, env.scope.return_type), env)
+                    if retval is not None:  # there may not be any return value
+                        if not retval.vtype.castable(env.scope.return_type):
+                            raise CRuntimeErr('Wrong return type! {} {}'.format(retval, env.scope.return_type), env)
+                        env.push_val(retval)  # store the return value
 
-                    env.push_val(retval)  # store the return value
                     env.currline = env.scope.return_lineno
                     env.scope = env.scope.return_scope  # reset to new scope
                     env.pop_exec()  # function call done
@@ -599,7 +598,7 @@ class Assignment(AstNode):
             elif isinstance(lval, Value):
                 lval.val = val.val
 
-            env.push_val(None)  # indicate that assignment has been done properly
+            env.push_val('AssignmentRet')  # indicate that assignment has been done properly
             env.pop_exec()
             exec_done = True
             self.exec_visited = False
@@ -707,7 +706,7 @@ class Declaration(AstNode):
                     else:
                         raise CRuntimeErr('Symbol "{}" already bound in this scope'.format(symbol.name), env)
 
-                env.push_val(None)
+                env.push_val('DeclarationRet')
                 env.pop_exec()
                 exec_done = True
                 self.exec_visited = False
@@ -1180,7 +1179,7 @@ class SelectionStatement(Statement):
             self.phase = 'cond_eval'
             self.exec_visited = True
         else:
-            if env.currline == self.startline():
+            if env.currline >= self.startline() and env.currline <= self.endline():
                 if self.phase == 'cond_eval':
                     cond_val = env.pop_val()  # evaluate the condition - returned from expression
 
@@ -1193,7 +1192,7 @@ class SelectionStatement(Statement):
                             self.exec_visited = False
                             env.currline = env.scope.return_lineno
                             env.scope = env.scope.return_scope  # return to parent scope
-                            env.push_val(None)
+                            env.push_val('SelectionRet')
                             env.pop_exec()
                             return exec_done, env
                         else:
@@ -1204,7 +1203,7 @@ class SelectionStatement(Statement):
                     env.currline = env.scope.return_lineno
                     env.scope = env.scope.return_scope
                     exec_done = True
-                    env.push_val(None)
+                    env.push_val('SelectionRet')
                     env.pop_exec()
                     self.exec_visited = False
         return exec_done, env
@@ -1234,7 +1233,7 @@ class ExpressionStatement(Statement):
             self.exec_visited = True
         else:
             if env.currline >= self.endline():
-                ret_val = None
+                ret_val = 'ExpressionStmtRet'
                 if self.expr is not None:
                     ret_val = env.pop_val()
 
@@ -1328,7 +1327,7 @@ class IterationStatement(Statement):
                         env.scope = env.scope.return_scope
                         env.currline = self.endline()  # finish the iteration and proceed
 
-                        env.push_val(None)  # indicate end of statement
+                        env.push_val('IterStatementRet')  # indicate end of statement
                         env.pop_exec()
                         exec_done = True
                         self.exec_visited = False

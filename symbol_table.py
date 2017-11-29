@@ -1,3 +1,5 @@
+
+
 class Value:
     def __init__(self, vtype, val=None):
         assert isinstance(vtype, TypeVal)
@@ -53,12 +55,14 @@ class TypeVal:
 
 
 class Symbol:
+    _addr = 0x0000abff  # gloabl address variable... 난 자괴감이 든다
     def __init__(self, name, astnode):
         self.name = name
-        self.address = 0  # TODO: generate memory address
+        self.address = Symbol._addr
         self.astnode = astnode  # corresponding AST node
         self.val_history = []
         self.value = None  # Value instance
+        Symbol._addr += 0x80
 
     def __repr__(self):
         return 'Symbol({}, val {})'.format(self.name, self.value)
@@ -82,7 +86,7 @@ class Scope:
         self.return_type = None  #  TypeVal instance
         self.return_scope = None
         self.return_lineno = None
-        self.return_val = False
+        self.return_val = None
 
     def show(self):
         scope = self
@@ -92,8 +96,6 @@ class Scope:
         print()
 
     def get_return_val(self):
-        if not self.return_val:
-            return False  # the function has not been executed and returned yet
         return self.return_val
 
     def add_symbol(self, symbol_name: str, symbol_info: Symbol):

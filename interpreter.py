@@ -20,7 +20,7 @@ try:
             code_lines.append(l)
 except EOFError:
     print('EOFError')
-print(s)
+code_lines.append('EOF')
 
 # parsing step
 ast_root = parser.parse(s, tracking=True)
@@ -42,6 +42,7 @@ for func in parser.functions:
             symbol_name=func.name(),
             symbol_info=Symbol(name=func.name(), astnode=func))
 scope = root_scope  # current evaluation scope
+root_scope.return_lineno = len(code_lines) - 1
 
 # evaluation stack - initial stack with function call of main
 main_call = FunctionCall(func_name=Id('main'), argument_list=ArgList([]))
@@ -52,13 +53,35 @@ call_stack = []
 env = ExecutionEnvironment(exec_stack, curr_lineno, scope, call_stack)
 
 # evalutaion loop
+total_line = 0
+numlines = 0
 while True:
-    input('Next line {}'.format(env.currline))  # next line
-    print(code_lines[env.currline - 1])
-    currline = env.currline
+    if numlines == 0:
+        print('Next line : {}'.format(code_lines[env.currline - 1]))
+        command = input('Command:')  # next line
+        if command == '':
+            commandlst = ['next', '1']
+        else:
+            commandlst = command.strip().split()
+        cmd = commandlst[0]
 
+        if cmd == 'next':
+            numlines = int(commandlst[1])
+        elif cmd == 'print':
+            symbolname = commandlst[1]
+            print(env.scope.getvalue(symbolname))
+            continue
+        elif cmd == 'trace':
+            varname = commandlst[1]
+            print(env.scope.getsymbol(varname).val_history)
+            continue
+
+    currline = env.currline  # store the current execution line
     while True:
         stacklen = len(exec_stack)
+        if stacklen == 0:  # indicates end of program
+            break
+
         print('Executing {} - {}'.format(exec_stack[-1], exec_stack[-1].linespan))
         exec_done, env = exec_stack[-1].execute(env)
 
@@ -67,18 +90,23 @@ while True:
         for stack_val in env.value_stack:
             stack_val_print += (stack_val.__repr__() + ' :: ')
         print(stack_val_print)
-        # print(exec_stack)
+        print(env.exec_stack)
 
-        # print([ast.linespan for ast in env.exec_stack])
-        # print(exec_stack[-1].linespan)
         if (not exec_done and len(exec_stack) == stacklen) or (currline != env.currline):
             break
 
     # update line number
     if currline == env.currline:
         env.update_currline(1)  # 1 line just for now
+        # keep track of line numbers
+        numlines -= 1
+        total_line += 1
 
     # do booked updates (++, -- used as postfixes)
     env.exec_booked_updates()
+    # env.scope.show()
 
-    env.scope.show()
+    # end of program indicator
+    if env.currline >= len(code_lines) or len(exec_stack) == 0:
+        print('End of Program')
+        break
