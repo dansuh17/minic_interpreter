@@ -66,7 +66,7 @@ while True:
         stack_val_print = ''
         for stack_val in env.value_stack:
             stack_val_print += (stack_val.__repr__() + ' :: ')
-        # print(stack_val_print)
+        print(stack_val_print)
         # print(exec_stack)
 
         # print([ast.linespan for ast in env.exec_stack])

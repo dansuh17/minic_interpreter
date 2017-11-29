@@ -50,6 +50,9 @@ class AstNode:
     def __str__(self):
         return '{}'.format(self.__class__.__name__)
 
+    def __repr__(self):
+        return self.__str__()
+
 
 class Id(AstNode):
     """
@@ -217,6 +220,30 @@ class FunctionCall(AstNode):
         exec_done = False
 
         funcname = self.func_name.name()
+
+        # handle printf - a hack!
+        if funcname == 'printf':
+            if not self.exec_visited:
+                env.push_exec(self.argument_list)
+                self.exec_visited = True
+                return False, env
+            else:
+                if env.currline >= self.endline():  # call has been made!
+                    args = env.pop_val()
+                    string_lit = args[0].val
+                    if len(args) == 1:
+                        print(string_lit)
+                    else:
+                        if '%d' in string_lit:
+                            string_lit.replace('%d', str(int(args[1].val)))
+                        else:
+                            string_lit.replace('%f', str(float(args[1].val)))
+                        print(string_lit)
+                env.pop_exec()  # function call done
+                self.exec_visited = False
+                return True, env
+
+
         if not self.exec_visited:
             if len(self.argument_list) != 0:
                 env.push_exec(self.argument_list)
@@ -226,11 +253,13 @@ class FunctionCall(AstNode):
             env.scope.return_lineno = env.currline
             env.currline = fundef_node.startline()
             self.exec_visited = True
+            self.wait_return = False
         else:
             if env.currline >= self.endline():  # call has been made!
-                if not env.scope.get_return_val():
+                if not self.wait_return:
                     # function has not been executed and returned
                     if env.scope.getvalue(funcname) is None:
+                        env.scope.show()
                         raise CRuntimeErr('No function named {} defined.'.format(funcname), env)
 
                     funcval = env.scope.getvalue(funcname)
@@ -249,6 +278,7 @@ class FunctionCall(AstNode):
                     func_scope.parent_scope = env.scope.root_scope()  # root scope is the parent
                     func_scope.return_lineno = self.startline()
                     func_scope.return_scope = env.scope
+                    func_scope.return_type = funcval.rtype
 
                     # type check the arguments with prameter declarations
                     # args are Values and params are (DeclaratorVal, TypeVal)s
@@ -270,17 +300,25 @@ class FunctionCall(AstNode):
                     env.push_exec(body_ast)
                     env.scope = func_scope
                     env.currline = body_ast.startline()
-                    print('Body startline ', body_ast.startline())
                     env.call_stack.append(funcval)
+                    self.wait_return = True
                 else:
                     # execution has been done and returned
+                    self.wait_return = False
                     exec_done = True
                     # TODO: type check for return value
                     retval = env.scope.get_return_val()
+                    print(retval)
+
+                    if not retval.vtype.castable(env.scope.return_type):
+                        raise CRuntimeErr('Wrong return type! {} {}'.format(retval, env.scope.return_type), env)
+
                     env.push_val(retval)  # store the return value
                     env.currline = env.scope.return_lineno
                     env.scope = env.scope.return_scope  # reset to new scope
+                    env.pop_exec()  # function call done
                     env.call_stack.pop()
+                    self.exec_visited = False
         return exec_done, env
 
 
@@ -369,6 +407,7 @@ class ArrayReference(AstNode):
             env.push_val(array_access_val)
             env.pop_exec()
             exec_done = True
+            self.exec_visited = False
         return exec_done, env
 
     def children(self):
@@ -488,6 +527,11 @@ class BinaryOp(AstNode):
                 if not arg1_val.vtype.castable(arg2_val.vtype):
                     raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
+            elif op_type == '>':
+                res = 1 if arg1_val.val > arg2_val.val else 0
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                vtype = TypeVal('int')
             elif op_type == '>=':
                 res = 1 if arg1_val.val >= arg2_val.val else 0
                 if not arg1_val.vtype.castable(arg2_val.vtype):
@@ -593,7 +637,11 @@ class Expression(AstNode, list):
         else:
             asmt_vals = []
             for _ in range(len(self)):
-                asmt_vals.append(env.pop_val())
+                asmt_val = env.pop_val()
+                if isinstance(asmt_val, list):  # () enclosed expression
+                    if len(asmt_val) == 1:
+                        asmt_val = asmt_val[0]
+                asmt_vals.append(asmt_val)
 
             env.push_val(asmt_vals)
             env.pop_exec()
@@ -659,6 +707,7 @@ class Declaration(AstNode):
                     else:
                         raise CRuntimeErr('Symbol "{}" already bound in this scope'.format(symbol.name), env)
 
+                env.push_val(None)
                 env.pop_exec()
                 exec_done = True
                 self.exec_visited = False
@@ -1076,9 +1125,10 @@ class CompoundStatement(AstNode, list):
                     env.pop_val()  # simply pop out all of them
 
                 env.pop_exec()
+                if env.scope.return_lineno is not None:
+                    env.currline = env.scope.return_lineno
                 exec_done = True
                 self.exec_visited = False
-                exec_done = False
         return exec_done, env
 
 
@@ -1098,10 +1148,6 @@ class SelectionStatement(Statement):
         self.if_expr = if_expr
         self.else_expr = else_expr
 
-    def evaluate(self):
-        # TODO
-        pass
-
     def children(self):
         ch_nodes = []
         if self.if_cond is not None:
@@ -1110,10 +1156,58 @@ class SelectionStatement(Statement):
         if self.if_expr is not None:
             assert isinstance(self.if_expr, AstNode)
             ch_nodes.append(self.if_expr)
-        if self.if_cond is not None:
-            assert isinstance(self.if_cond, AstNode)
-            ch_nodes.append(self.if_cond)
+        if self.else_expr is not None:
+            assert isinstance(self.else_expr, AstNode)
+            ch_nodes.append(self.else_expr)
         return ch_nodes
+
+    def execute(self, env):
+        if env.currline < self.startline() or env.currline > self.endline():
+            # execution line number not reached yet
+            return False, env
+
+        exec_done = False
+        if not self.exec_visited:
+            env.push_exec(self.if_cond)
+
+            # create a block scope for the statement
+            block_scope = Scope({})
+            block_scope.parent_scope = env.scope
+            block_scope.return_scope = env.scope
+            block_scope.return_lineno = self.endline()
+            env.scope = block_scope
+
+            self.phase = 'cond_eval'
+            self.exec_visited = True
+        else:
+            if env.currline == self.startline():
+                if self.phase == 'cond_eval':
+                    cond_val = env.pop_val()  # evaluate the condition - returned from expression
+
+                    if cond_val[0].val >= 1:  # into if-statement
+                        env.push_exec(self.if_expr)
+                        self.phase = 'done'
+                    else:  # into else-statement or continue
+                        if self.else_expr is None:
+                            exec_done = True
+                            self.exec_visited = False
+                            env.currline = env.scope.return_lineno
+                            env.scope = env.scope.return_scope  # return to parent scope
+                            env.push_val(None)
+                            env.pop_exec()
+                            return exec_done, env
+                        else:
+                            env.currline = self.else_expr.startline()
+                            env.push_exec(self.else_expr)
+                            self.phase = 'done'
+                else:  # 'done'
+                    env.currline = env.scope.return_lineno
+                    env.scope = env.scope.return_scope
+                    exec_done = True
+                    env.push_val(None)
+                    env.pop_exec()
+                    self.exec_visited = False
+        return exec_done, env
 
 
 class ExpressionStatement(Statement):
@@ -1234,8 +1328,10 @@ class IterationStatement(Statement):
                         env.scope = env.scope.return_scope
                         env.currline = self.endline()  # finish the iteration and proceed
 
+                        env.push_val(None)  # indicate end of statement
                         env.pop_exec()
                         exec_done = True
+                        self.exec_visited = False
                 elif self.iter_type == 'while':
                     # TODO: implement
                     pass
@@ -1285,9 +1381,10 @@ class JumpStatement(Statement):
         else:
             if env.currline >= self.endline():
                 ret_val = None
-                if self.expr is not None:
+                if self.what is not None:
                     ret_val = env.pop_val()
 
+                env.scope.return_val = ret_val[0]
                 env.push_val(ret_val)
                 env.pop_exec()
                 exec_done = True

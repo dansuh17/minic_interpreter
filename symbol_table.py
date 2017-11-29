@@ -51,6 +51,7 @@ class TypeVal:
         numtypes = ['int', 'float']
         return (self.typename in numtypes) and (other.typename in numtypes) and (self.sum_arr_ptr() == other.sum_arr_ptr())
 
+
 class Symbol:
     def __init__(self, name, astnode):
         self.name = name
