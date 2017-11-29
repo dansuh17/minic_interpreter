@@ -83,6 +83,13 @@ class Scope:
         self.return_lineno = None
         self.return_val = False
 
+    def show(self):
+        scope = self
+        while scope is not None:
+            print(scope.symbol_table, end=' ==> ')
+            scope = scope.parent_scope
+        print()
+
     def get_return_val(self):
         if not self.return_val:
             return False  # the function has not been executed and returned yet

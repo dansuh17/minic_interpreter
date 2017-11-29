@@ -637,13 +637,17 @@ class Declaration(AstNode):
 
                 # bind symbols to scope
                 for decval in init_dec_vals:
+                    init_val = None
+                    if isinstance(decval, tuple):
+                        # contains an initializer, as in int c = 0
+                        decval, init_val = decval
                     symbol = decval.getsymbol()
                     pointer = decval.pointer_val
                     vtype = TypeVal(typename=type_val.typename)
                     # pointers can be separately declared
                     # ex) int *x, y z -> x is a pointer, y, z are not
                     vtype.ptr = pointer.order if pointer is not None else 0
-                    value = Value(vtype=vtype)
+                    value = Value(vtype=vtype, val=init_val)
                     if decval.dec_type == 'array':
                         vtype.array = 1
                         value.arr_size = decval.arr_size_val.val
@@ -843,7 +847,10 @@ class FuncDeclarator(Declarator):
 class InitDeclarator(AstNode):
     """
     Declaration that are initialized.
-    ex) 'sum = 0' translates into Declarator(sum) + Initializer(0)
+    ex1) 'sum = 0' translates into Declarator(sum) + Initializer(0)
+    ex2) 'sum' (as in 'int sum') does not have an initializer part,
+        but is not instantiated as InitDeclarator. See yacc.py.
+    Initializer part is an assignment expression.
     """
     def __init__(self, declarator: Declarator, initializer):
         super().__init__()
@@ -857,6 +864,26 @@ class InitDeclarator(AstNode):
         if self.initializer is not None and isinstance(self.initializer, AstNode):
             ch_nodes.append(self.initializer)
         return ch_nodes
+
+    def execute(self, env):
+        if env.currline < self.startline() or env.currline > self.endline():
+            # execution line number not reached yet
+            return False, env
+
+        exec_done = False
+        if not self.exec_visited:
+            self.add_child_executes(env.exec_stack)
+            self.exec_visited = True
+        else:
+            if env.currline >= self.endline():
+                init_val = env.pop_val()
+                declarator_val = env.pop_val()
+
+                env.push_val((declarator_val, init_val))  # pair of (Symbol, Value)
+                env.pop_exec()
+                exec_done = True
+                self.exec_visited = False
+        return exec_done, env
 
 
 class InitDeclaratorList(AstNode, list):
@@ -1183,6 +1210,7 @@ class IterationStatement(Statement):
             return False, env
 
         if env.currline >= self.body.startline():  # at the start of body...
+            print(self.phase)
             if self.phase == 'preparation':
                 env.pop_val()  # discard value for preparation
                 self.push_conditions(env)
@@ -1198,10 +1226,11 @@ class IterationStatement(Statement):
 
                     # determine from the conditional statement
                     # if the body should be executed
-                    if cond_val is None or cond_val[0].val == 1:
+                    if cond_val is None or cond_val[0].val >= 1:
                         env.push_exec(self.body)
                         self.phase = 'body'
                     else:
+                        print('ENTERED')
                         env.scope = env.scope.return_scope
                         env.currline = self.endline()  # finish the iteration and proceed
 
@@ -1212,16 +1241,18 @@ class IterationStatement(Statement):
                     pass
             elif self.phase == 'body':  # after the body has been executed
                 # do the update
+                env.currline = self.startline()  # revert the execution line to top of iter statement
                 if self.exp3 is not None:
                     env.push_exec(self.exp3)
                     self.phase = 'update'
                 else:
                     self.phase = 'condition'
-                env.currline = self.startline()  # revert the execution line to top of iter statement
             elif self.phase == 'update':
                 env.pop_val()
+                env.exec_booked_updates()  # if any value updates are deferred, update the values
                 self.push_conditions(env)
                 self.phase = 'cond_eval'
+                env.currline = self.startline()
         return exec_done, env
 
     def __str__(self):
@@ -1241,6 +1272,27 @@ class JumpStatement(Statement):
         if self.what is not None and isinstance(self.what, AstNode):
             ch_nodes.append(self.what)
         return ch_nodes
+
+    def execute(self, env):
+        if env.currline < self.startline() or env.currline > self.endline():
+            # execution line number not reached yet
+            return False, env
+
+        exec_done = False
+        if not self.exec_visited:
+            self.add_child_executes(env.exec_stack)
+            self.exec_visited = True
+        else:
+            if env.currline >= self.endline():
+                ret_val = None
+                if self.expr is not None:
+                    ret_val = env.pop_val()
+
+                env.push_val(ret_val)
+                env.pop_exec()
+                exec_done = True
+                self.exec_visited = False
+        return exec_done, env
 
 
 class TranslationUnit(AstNode, list):

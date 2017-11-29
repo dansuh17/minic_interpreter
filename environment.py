@@ -13,6 +13,7 @@ class ExecutionEnvironment:
     def exec_booked_updates(self):
         for update in self.booked_updates:
             update['exec_target'](*update['arg'])
+        self.booked_updates = []  # done
 
     def update_currline(self, no):
         self.currline += no
@@ -34,4 +35,3 @@ class CRuntimeErr(Exception):
     def __init__(self, msg, env=None):
         self.msg = msg
         self.env = env
-

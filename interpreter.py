@@ -59,14 +59,15 @@ while True:
 
     while True:
         stacklen = len(exec_stack)
-        print('Executing {}'.format(exec_stack[-1]))
+        print('Executing {} - {}'.format(exec_stack[-1], exec_stack[-1].linespan))
         exec_done, env = exec_stack[-1].execute(env)
 
         # print stack values for debugging
         stack_val_print = ''
         for stack_val in env.value_stack:
             stack_val_print += (stack_val.__repr__() + ' :: ')
-        print(stack_val_print)
+        # print(stack_val_print)
+        # print(exec_stack)
 
         # print([ast.linespan for ast in env.exec_stack])
         # print(exec_stack[-1].linespan)
@@ -79,3 +80,5 @@ while True:
 
     # do booked updates (++, -- used as postfixes)
     env.exec_booked_updates()
+
+    env.scope.show()
