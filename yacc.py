@@ -722,7 +722,10 @@ def p_declarator(p):
         register_lineinfo(p, 2)
 
         if p[2].pointer is None:
-            p[2].pointer = Pointer()
+            pointer_inst = Pointer()
+            pointer_inst.linespan = p.linespan(1)
+            pointer_inst.lexspan = p.lexspan(1)
+            p[2].pointer = pointer_inst
         else:
             p[2].pointer.append_pointer()
         p[0] = p[2]
@@ -1047,7 +1050,8 @@ def p_iteration_statement(p):
     """
     if len(p) == 6:  # while loop
         register_lineinfo(p, 3)
-        p[0] = IterationStatement(iter_type='while', exp1=p[3], body=statement)
+        register_lineinfo(p, 5)
+        p[0] = IterationStatement(iter_type='while', exp1=p[3], body=p[5])
     elif len(p) == 7:  # where one of for-conditions are omitted
         if isinstance(p[4], Statement):
             register_lineinfo(p, 3)

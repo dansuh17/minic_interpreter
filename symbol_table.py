@@ -18,15 +18,20 @@ class Value:
         return self.__str__()
 
     def cast(self, casttype):
-        if casttype.typename == 'float':
-            self.val = float(val)
-        elif casttype.typename == 'int':
-            self.val = int(val)
+        if self.arr_size is not None:
+            # cast all elements of the array
+            for arr_val in self.val:
+                arr_val.cast(casttype)
+        else:
+            if casttype.typename == 'float':
+                self.val = float(self.val)
+            elif casttype.typename == 'int':
+                self.val = int(self.val)
 
 
 class TypeVal:
     def __init__(self, typename: str, ptr=0, array=0):
-        self.typename = typename  # boolean, int, float, string, function, void, op
+        self.typename = typename  # int, float, string, function, void, op
         self.ptr = ptr  # pointer order
         self.array = array
 
@@ -39,10 +44,12 @@ class TypeVal:
     def __eq__(self, other):
         pass
 
-    def castable(self, other):
-        # true if other can be casted to self
-        pass
+    def sum_arr_ptr(self):
+        return self.ptr + self.array
 
+    def castable(self, other):
+        numtypes = ['int', 'float']
+        return (self.typename in numtypes) and (other.typename in numtypes) and (self.sum_arr_ptr() == other.sum_arr_ptr())
 
 class Symbol:
     def __init__(self, name, astnode):
@@ -81,7 +88,6 @@ class Scope:
             return False  # the function has not been executed and returned yet
         return self.return_val
 
-
     def add_symbol(self, symbol_name: str, symbol_info: Symbol):
         if symbol_name not in self.symbol_table:
             self.symbol_table[symbol_name] = symbol_info
@@ -96,7 +102,7 @@ class Scope:
         else:
             return self.parent_scope.getsymbol(sym_name)
 
-    def set_value(self, sym_name: str, val, lineno: int):
+    def set_value(self, sym_name: str, val: Value, lineno: int):
         self.getsymbol(sym_name).value = val
         self.getsymbol(sym_name).val_history.append((val, lineno))
 

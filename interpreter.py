@@ -44,7 +44,7 @@ for func in parser.functions:
 scope = root_scope  # current evaluation scope
 
 # evaluation stack - initial stack with function call of main
-main_call = FunctionCall(func_name=String('main'), argument_list=ArgList([]))
+main_call = FunctionCall(func_name=Id('main'), argument_list=ArgList([]))
 main_call.linespan = (curr_lineno, curr_lineno)
 
 exec_stack = [main_call]
@@ -62,10 +62,12 @@ while True:
         print('Executing {}'.format(exec_stack[-1]))
         exec_done, env = exec_stack[-1].execute(env)
 
+        # print stack values for debugging
         stack_val_print = ''
         for stack_val in env.value_stack:
             stack_val_print += (stack_val.__repr__() + ' :: ')
         print(stack_val_print)
+
         # print([ast.linespan for ast in env.exec_stack])
         # print(exec_stack[-1].linespan)
         if (not exec_done and len(exec_stack) == stacklen) or (currline != env.currline):

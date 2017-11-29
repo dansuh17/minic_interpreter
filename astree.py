@@ -162,22 +162,32 @@ class UnaryExpr(AstNode):
         return children_nodes
 
     def execute(self, env):
+        if env.currline < self.startline() or env.currline > self.endline():
+            # execution line number not reached yet
+            return False, env
+
         exec_done = False
         if not self.exec_visited:
             env.push_exec(self.operand)
+            self.exec_visited = True
         else:
             operand = env.pop_val()
             operand_val = env.scope.getvalue(operand.name)
+
             inc = 1 if self.op_name == '++' else -1
             if self.is_postfix:
                 # postpone update
                 env.book_update({
-                    'exec_target': env.scope.setvalue,
-                    'arg': (operand.name, operand + inc, env.currline),
+                    'exec_target': env.scope.set_value,
+                    'arg': (operand.name, Value(vtype=operand_val.vtype, val=operand_val.val + inc), env.currline),
                 })
             else:
                 env.scope.set_value(operand.name, operand + inc, env.currline)
+
+            env.push_val(operand_val)  # indicate that the operation has been made successfuly
             exec_done = True
+            self.exec_visited = False
+            env.pop_exec()
         return exec_done, env
 
     def __str__(self):
@@ -206,15 +216,18 @@ class FunctionCall(AstNode):
     def execute(self, env):
         exec_done = False
 
-        funcname = self.func_name.string
+        funcname = self.func_name.name()
         if not self.exec_visited:
             if len(self.argument_list) != 0:
                 env.push_exec(self.argument_list)
             # defer the execution until register is done - register first
-            env.push_exec(env.scope.getsymbol(funcname).astnode)
+            fundef_node = env.scope.getsymbol(funcname).astnode
+            env.push_exec(fundef_node)
+            env.scope.return_lineno = env.currline
+            env.currline = fundef_node.startline()
             self.exec_visited = True
         else:
-            if env.currline == self.endline():  # call has been made!
+            if env.currline >= self.endline():  # call has been made!
                 if not env.scope.get_return_val():
                     # function has not been executed and returned
                     if env.scope.getvalue(funcname) is None:
@@ -223,7 +236,8 @@ class FunctionCall(AstNode):
                     funcval = env.scope.getvalue(funcname)
                     args = []
                     if len(self.argument_list) > 0:
-                        args = env.pop_val()  # list of (type, symbol string)
+                        args = env.pop_val()
+                    print(args)
                     # args = self.argument_list.evaluate()
                     params = funcval.params
                     if len(args) != len(params):
@@ -237,31 +251,36 @@ class FunctionCall(AstNode):
                     func_scope.return_scope = env.scope
 
                     # type check the arguments with prameter declarations
-                    for arg, ptype in zip(args, params):
-                        if not arg.vtype.castable(ptype[0]):
-                            raise CRuntimeError('Argument type mismatch', env)
+                    # args are Values and params are (DeclaratorVal, TypeVal)s
+                    for arg, param in zip(args, params):
+                        param_type, param_dec = param
+                        if not arg.vtype.castable(param_type):
+                            raise CRuntimeErr('Argument type mismatch {}, {}'.format(arg, param), env)
+                        arg.cast(param_type)
 
                         # bind argument values to their symbols
-                        argname = ptype[1].val
+                        argsymbol = param_dec.getsymbol()
                         func_scope.add_symbol(
-                                symbol_name=argname,
-                                symbol_info=Symbol(argname, None))
-                        arg.cast(ptype[0])
-                        func_scope.set_value(argname, arg, env.currline)
+                                symbol_name=argsymbol.name,
+                                symbol_info=argsymbol)
+                        func_scope.set_value(argsymbol.name, arg, env.currline)
 
                     # start executing body
                     body_ast = env.scope.getsymbol(funcname).value.body
                     env.push_exec(body_ast)
                     env.scope = func_scope
                     env.currline = body_ast.startline()
+                    print('Body startline ', body_ast.startline())
                     env.call_stack.append(funcval)
                 else:
                     # execution has been done and returned
                     exec_done = True
+                    # TODO: type check for return value
                     retval = env.scope.get_return_val()
+                    env.push_val(retval)  # store the return value
+                    env.currline = env.scope.return_lineno
                     env.scope = env.scope.return_scope  # reset to new scope
                     env.call_stack.pop()
-                    env.push_val(retval)
         return exec_done, env
 
 
@@ -287,7 +306,11 @@ class ArgList(AstNode, list):
             if env.currline >= self.endline():
                 arglist = []
                 for _ in range(len(self)):
-                    arglist.append(env.pop_val())
+                    argval = env.pop_val()
+                    if isinstance(argval, Symbol):
+                        argval = env.scope.getvalue(argval.name)
+                    arglist.append(argval)
+                arglist.reverse()
 
                 env.push_val(arglist)
                 exec_done = True
@@ -315,36 +338,36 @@ class ArrayReference(AstNode):
         self.name = name
         self.idx = idx
 
-    def execution(self, env):
-        if env.currline < self.startline():
-            #TODO: make this a decorator
-            # the executing line has not reached this statement yet
+    def execute(self, env):
+        if env.currline < self.startline() or env.currline > self.endline():
+            # execution line number not reached yet
             return False, env
 
         exec_done = False
         if not self.exec_visited:
-            self.add_child_executes()
+            self.add_child_executes(env.exec_stack)
             self.exec_visited = True
         else:
             if env.currline >= self.endline():
-                idx_val = env.pop_val()
+                idx_val = env.pop_val()[0]
                 name_val = env.pop_val()
-            arr_name = name_val.val
+
+            arr_val = env.scope.getvalue(name_val.name)
+            if isinstance(idx_val, Symbol):
+                idx_val = env.scope.getvalue(idx_val.name)  # get value from variable
 
             # check if it is an array
-            if name_val.vtype.array == 0:
+            if arr_val.vtype.array == 0:
                 raise CRuntimeErr('Name {} not array!'.format(arr_name), env)
 
-            arr_symbol = env.scope.getsymbol(arr_name)
             idx = idx_val.val
-            value_array = arr_sumbol.value.val
-            if len(value_array) <= idx + 1:
-                raise CRuntimeErr('Index error - array length {}, idx {}'.format(len(value_array), idx), env)
+            if len(arr_val.val) <= idx:
+                raise CRuntimeErr('Index error - array length {}, idx {}'.format(len(arr_val.val), idx), env)
 
-            array_access_val = value_array[idx]  # retrieve the actual value
+            array_access_val = arr_val.val[idx]  # retrieve the actual value
 
             env.push_val(array_access_val)
-            env.pop_val()
+            env.pop_exec()
             exec_done = True
         return exec_done, env
 
@@ -354,7 +377,7 @@ class ArrayReference(AstNode):
             children_nodes.append(self.name)
 
         if self.idx is not None and isinstance(self.idx, AstNode):
-            children_nodes.append(self.name)
+            children_nodes.append(self.idx)
         return children_nodes
 
 
@@ -417,12 +440,12 @@ class BinaryOp(AstNode):
                 arg1_val = env.scope.getvalue(arg1_val.name)
             if isinstance(arg2_val, Symbol):
                 arg2_val = env.scope.getvalue(arg2_val.name)
-
             op_type = op_val.val
+
             if op_type == '*':
                 res = arg1_val.val * arg2_val.val
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
 
                 if arg1_val.vtype.typename == 'int' and arg2_val.vtype.typename == 'int':
                     vtype = TypeVal('int')
@@ -430,16 +453,16 @@ class BinaryOp(AstNode):
                     vtype = TypeVal('float')
             elif op_type == '+':
                 res = arg1_val.val + arg2_val.val
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 if arg1_val.vtype.typename == 'int' and arg2_val.vtype.typename == 'int':
                     vtype = TypeVal('int')
                 else:
                     vtype = TypeVal('float')
             elif op_type == '-':
                 res = arg1_val.val - arg2_val.val
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 if arg1_val.vtype.typename == 'int' and arg2_val.vtype.typename == 'int':
                     vtype = TypeVal('int')
                 else:
@@ -452,36 +475,36 @@ class BinaryOp(AstNode):
                 vtype = TypeVal('float')
             elif op_type == '&&':
                 res = 1 if arg1_val.val and arg2_val.val else 0
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
             elif op_type == '||':
                 res = 1 if arg1_val.val or arg2_val.val else 0
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
             elif op_type == '<':
                 res = 1 if arg1_val.val < arg2_val.val else 0
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
             elif op_type == '>=':
                 res = 1 if arg1_val.val >= arg2_val.val else 0
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
             elif op_type == '<=':
                 res = 1 if arg1_val.val <= arg2_val.val else 0
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
             elif op_type == '==':
                 res = 1 if arg1_val.val == arg2_val.val else 0
-                if arg1_val.vtype.castable(arg2_val.vtype):
-                    raise CRuntimeError('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
+                if not arg1_val.vtype.castable(arg2_val.vtype):
+                    raise CRuntimeErr('Type not castable {} and {}'.format(arg1_val.vtype, arg2_val.vtype))
                 vtype = TypeVal('int')
             else:
-                raise CRuntimeError('Invalid binary operator {}'.format(op_val), env)
+                raise CRuntimeErr('Invalid binary operator {}'.format(op_val), env)
 
             env.push_val(Value(vtype, res))
             env.pop_exec()
@@ -521,15 +544,16 @@ class Assignment(AstNode):
             self.exec_visited = True
         else:
             val = env.pop_val()
-            sym = env.pop_val()
-            assert isinstance(sym, Symbol)
+            lval = env.pop_val()
             assert isinstance(val, Value)
 
-            if env.scope.getsymbol(sym.name) is None:
-                raise CRuntimeError('Name {} does not exist!'.format(sym.name), env)
-
-            # assignm value to the name
-            env.scope.set_value(sym.name, val, env.currline)
+            if isinstance(lval, Symbol):
+                if env.scope.getsymbol(lval.name) is None:
+                    raise CRuntimeErr('Name {} does not exist!'.format(sym.name), env)
+                # assign value to the name
+                env.scope.set_value(lval.name, val, env.currline)
+            elif isinstance(lval, Value):
+                lval.val = val.val
 
             env.push_val(None)  # indicate that assignment has been done properly
             env.pop_exec()
@@ -599,7 +623,6 @@ class Declaration(AstNode):
 
     def execute(self, env):
         if env.currline < self.startline() or env.currline > self.endline():
-            print(self.linespan)
             # execution line number not reached yet
             return False, env
 
@@ -624,12 +647,13 @@ class Declaration(AstNode):
                     if decval.dec_type == 'array':
                         vtype.array = 1
                         value.arr_size = decval.arr_size_val.val
+                        value.val = [Value(TypeVal(vtype.typename)) for _ in range(value.arr_size)]  # default array init
 
                     if env.scope.getsymbol(symbol.name) is None:
                         env.scope.add_symbol(symbol.name, symbol)
                         env.scope.set_value(symbol.name, value, env.currline)
                     else:
-                        raise CRuntimeError('Symbol "{}" already bound in this scope'.format(symbol.name), env)
+                        raise CRuntimeErr('Symbol "{}" already bound in this scope'.format(symbol.name), env)
 
                 env.pop_exec()
                 exec_done = True
@@ -680,6 +704,12 @@ class Pointer(AstNode):
     def append_pointer(self):
         self.order += 1
 
+    def execute(self, env):
+        # simply put the order of pointer
+        env.push_val(self.order)
+        env.pop_exec()
+        return True, env
+
     def __str__(self):
         return '{}(order:{}, {})'.format(
                 super().__str__(), self.order, '*' * self.order)
@@ -691,8 +721,8 @@ class Declarator(AstNode):
     """
     def __init__(self, of, pointer=None):
         super().__init__()
-        self.of = of  # declarator of ...
         self.pointer = pointer
+        self.of = of  # declarator of ...
 
     def name(self):
         return self.of.name()  # ID instance or Declarator
@@ -708,10 +738,10 @@ class Declarator(AstNode):
             self.exec_visited = True
         else:
             if env.currline >= self.endline():
+                of_val = env.pop_val()
                 pointer_val = None
                 if self.pointer is not None:
                     pointer_val = env.pop_val()
-                of_val = env.pop_val()
 
                 env.push_val(DeclaratorVal('default', of_val, pointer_val))
                 env.pop_exec()
@@ -914,10 +944,15 @@ class ParameterDeclaration(AstNode):
             self.exec_visited = True
         else:
             if env.currline >= self.endline():
-                dec_specs = env.pop_val()  # list of TypeVal
                 declarator = None
                 if self.declarator is not None:
                     declarator = env.pop_val()
+                dec_specs = env.pop_val()  # TypeVal
+                if declarator is not None:
+                    if declarator.pointer_val is not None:
+                        dec_specs.ptr = declarator.pointer_val
+                    if declarator.dec_type == 'array':
+                        dec_specs.array = 1
 
                 env.push_val((dec_specs, declarator))
                 env.pop_exec()
@@ -985,7 +1020,9 @@ class ParameterList(AstNode, list):
 
 
 class CompoundStatement(AstNode, list):
-    # list of statements enclosed by braces, such as function bodies.
+    """
+    list of statements enclosed by braces, such as function bodies.
+    """
     def __init__(self):
         super().__init__()
 
@@ -1001,13 +1038,20 @@ class CompoundStatement(AstNode, list):
             # execution line number not reached yet
             return False, env
 
-        # compound statement simply adds its children (block items) to execution stack
-        # no need to return to this execution
-        env.pop_exec()
-        self.add_child_executes(env.exec_stack)
-        exec_done = True
-        self.exec_visited = False
         exec_done = False
+        if not self.exec_visited:
+            self.add_child_executes(env.exec_stack)
+            self.exec_visited = True
+        else:
+            if env.currline >= self.endline():
+                # compound statment ignores each statements' execution results
+                for _ in range(len(self)):
+                    env.pop_val()  # simply pop out all of them
+
+                env.pop_exec()
+                exec_done = True
+                self.exec_visited = False
+                exec_done = False
         return exec_done, env
 
 
@@ -1069,10 +1113,11 @@ class ExpressionStatement(Statement):
             self.exec_visited = True
         else:
             if env.currline >= self.endline():
+                ret_val = None
                 if self.expr is not None:
-                    # any values returned by expression is ignored after statement execution is done
-                    env.pop_val()
+                    ret_val = env.pop_val()
 
+                env.push_val(ret_val)
                 env.pop_exec()
                 exec_done = True
                 self.exec_visited = False
@@ -1107,6 +1152,12 @@ class IterationStatement(Statement):
             ch_nodes.append(self.body)
         return ch_nodes
 
+    def push_conditions(self, env):
+        if self.iter_type == 'for':
+            env.push_exec(self.exp2)
+        elif self.iter_type == 'while':
+            env.push_exec(self.exp1)  # push the condition and/or update assignment
+
     def execute(self, env):
         if env.currline < self.startline() or env.currline > self.endline():
             # execution line number not reached yet
@@ -1114,31 +1165,63 @@ class IterationStatement(Statement):
 
         exec_done = False
         if not self.exec_visited:
-            self.add_child_executes(env.exec_stack)
+            # create a new scope before executing anything
+            iter_scope = Scope({})
+            iter_scope.parent_scope = env.scope  # current scope is the parent
+            iter_scope.return_lineno = self.startline()  # return to the first line of this loop
+            iter_scope.return_scope = env.scope
+            env.scope = iter_scope
             self.exec_visited = True
-        else:
-            if env.currline >= self.endline():
-                body_val = None
-                if self.body is not None:
-                    body_val = env.pop_val()
-                expr3_val = None
-                if self.exp3 is not None:
-                    expr3_val = env.pop_val()
-                expr2_val = None
-                if self.exp2 is not None:
-                    expr2_val = env.pop_val()
-                expr1_val = None
+
+            # add declaration or 'prepare statement' for for-loop
+            if self.iter_type == 'for':
                 if self.exp1 is not None:
-                    expr1_val = env.pop_val()
+                    env.push_exec(self.exp1)
+                    self.phase = 'preparation'
+                else:
+                    self.phase = 'condition'
+            return False, env
 
+        if env.currline >= self.body.startline():  # at the start of body...
+            if self.phase == 'preparation':
+                env.pop_val()  # discard value for preparation
+                self.push_conditions(env)
+                self.phase = 'cond_eval'
+            elif self.phase == 'condition':
+                # add statement to evaluate the condition
+                self.push_conditions(env)
+                self.phase = 'cond_eval'
+            elif self.phase == 'cond_eval':
                 if self.iter_type == 'for':
-                    expr1_val
-                elif self.iter_type == 'while':
-                    pass
+                    # handle for-loop
+                    cond_val = env.pop_val()
 
-                env.pop_exec()
-                exec_done = True
-                self.exec_visited = False
+                    # determine from the conditional statement
+                    # if the body should be executed
+                    if cond_val is None or cond_val[0].val == 1:
+                        env.push_exec(self.body)
+                        self.phase = 'body'
+                    else:
+                        env.scope = env.scope.return_scope
+                        env.currline = self.endline()  # finish the iteration and proceed
+
+                        env.pop_exec()
+                        exec_done = True
+                elif self.iter_type == 'while':
+                    # TODO: implement
+                    pass
+            elif self.phase == 'body':  # after the body has been executed
+                # do the update
+                if self.exp3 is not None:
+                    env.push_exec(self.exp3)
+                    self.phase = 'update'
+                else:
+                    self.phase = 'condition'
+                env.currline = self.startline()  # revert the execution line to top of iter statement
+            elif self.phase == 'update':
+                env.pop_val()
+                self.push_conditions(env)
+                self.phase = 'cond_eval'
         return exec_done, env
 
     def __str__(self):
@@ -1218,16 +1301,13 @@ class FunDef(AstNode):
         if not self.exec_visited:
             self.add_child_executes(env.exec_stack)
             self.exec_visited = True
-        else:  # all child nodes have been executed and all required values are in the stack
-            # rtypes = self.return_type.evaluate()  # list of type specifiers
-            # rtype_pntr, funname, params = self.name_params.evaluate()  # FuncDeclarator
+        else:
             fun_dec_val = env.pop_val()
 
             params = fun_dec_val.param_typelist_val  # list of (TypeVal, Symbol)
             funname = fun_dec_val.of_val.of_val  # name of the function
             pointer = fun_dec_val.pointer_val
             rtype = env.pop_val()  # typeval
-
 
             # register the symbol in the scope if it does not exist
             funname.astnode = self
@@ -1239,5 +1319,7 @@ class FunDef(AstNode):
                         self.startline())
             env.pop_exec()
             self.exec_visited = False
+            env.currline = env.scope.return_lineno
+            env.scope.return_lineno = None
             exec_done = True
         return exec_done, env
