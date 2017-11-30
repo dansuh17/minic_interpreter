@@ -54,14 +54,14 @@ def t_ID(t):
     t.type = reserved.get(t.value, 'ID')  # check for reserved words
     return t
 
+def t_FLOATING_POINT_NUM(t):
+    r'\d*[.]\d+'
+    t.value = float(t.value)
+    return t
+
 def t_INTEGER_NUM(t):
     r'\d+'
     t.value = int(t.value)
-    return t
-
-def t_FLOATING_POINT_NUM(t):
-    r'\d*\.\d+'
-    t.value = float(t.value)
     return t
 
 # rule for tracking line numbers
@@ -71,7 +71,7 @@ def t_newline(t):
 
 # handle error
 def t_error(t):
-    print('illegal character {}'.format(t.value[0]))
+    print('Illegal character {}, at line {}'.format(t.value[0], t.lineno))
 
 # handle EOF
 def t_eof(t):

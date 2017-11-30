@@ -1136,6 +1136,7 @@ def p_error(t):
     print('Syntax Error at token {}!'.format(t))
     parser.errorlines.append(t.lineno)
 
+
 # create a parser
 parser = yacc.yacc(debug=True)
 parser.errorlines = []

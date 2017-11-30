@@ -235,9 +235,9 @@ class FunctionCall(AstNode):
                         print(string_lit)
                     else:
                         if '%d' in string_lit:
-                            string_lit.replace('%d', str(int(args[1].val)))
+                            string_lit = string_lit.replace('%d', str(int(args[1].val)))
                         else:
-                            string_lit.replace('%f', str(float(args[1].val)))
+                            string_lit = string_lit.replace('%f', str(float(args[1].val)))
                         print(string_lit)
                 env.push_val('Printf')
                 env.pop_exec()  # function call done
@@ -693,7 +693,7 @@ class Declaration(AstNode):
                     vtype = TypeVal(typename=type_val.typename)
                     # pointers can be separately declared
                     # ex) int *x, y z -> x is a pointer, y, z are not
-                    vtype.ptr = pointer.order if pointer is not None else 0
+                    vtype.ptr = pointer if pointer is not None else 0
                     value = Value(vtype=vtype, val=init_val)
                     if decval.dec_type == 'array':
                         vtype.array = 1
@@ -870,10 +870,17 @@ class FuncDeclarator(Declarator):
             self.exec_visited = True
         else:
             if env.currline >= self.endline():
-                param_list = env.pop_val()
+                # function prameter list
+                param_list = []
+                if self.param_type_list is not None:
+                    param_list = env.pop_val()
+
+                # if the function returns a pointer...!!
                 pointer_val = None
                 if self.pointer is not None:
                     pointer_val = env.pop_val()
+
+                # function name value
                 funname_val = env.pop_val()  # returned from declarator
 
                 dec_val = DeclaratorVal('function', funname_val, pointer_val)
@@ -1453,7 +1460,7 @@ class FunDef(AstNode):
             fun_dec_val = env.pop_val()
 
             params = fun_dec_val.param_typelist_val  # list of (TypeVal, Symbol)
-            funname = fun_dec_val.of_val.of_val  # name of the function
+            funname = fun_dec_val.getsymbol()  # name of the function
             pointer = fun_dec_val.pointer_val
             rtype = env.pop_val()  # typeval
 

@@ -1,3 +1,6 @@
+import os
+import re
+import sys
 import yacc
 import operator
 from astree import *
@@ -8,8 +11,13 @@ class SemanticError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
-input_file = 'test.c'
+cfile_dir = './cfiles'
+input_file = 'sim.c'
+input_file = os.path.join(cfile_dir, input_file)
 parser = yacc.parser  # import the parser
+
+# regular expression for id
+id_regex = re.compile('[a-zA-Z_][a-zA-Z_0-9]*')
 
 code_lines = []  # keep track of lines of code
 try:
@@ -23,11 +31,20 @@ except EOFError:
 code_lines.append('EOF')
 
 # parsing step
-ast_root = parser.parse(s, tracking=True)
+try:
+    ast_root = parser.parse(s, tracking=True)
+    if len(parser.errorlines) > 0:
+        for errorline in parser.errorlines:
+            print('Parse Error at line :{}\n{}'.format(errorline, code_lines[errorline - 1]))
+        raise Exception
+except Exception as e:
+    print('Parse Error')
+    sys.exit(0)  # terminate the program...
+
 if parser.main_func is None:
     raise SemanticError('No main function!')
 
-# print(parser.errorlines)  # lines where syntax error occurred
+errorlines =  parser.errorlines  # lines where syntax error occurred
 print('Result AST tree')
 ast_root.show()
 
@@ -69,7 +86,14 @@ while True:
             numlines = int(commandlst[1])
         elif cmd == 'print':
             symbolname = commandlst[1]
-            print(env.scope.getvalue(symbolname))
+
+            # see if input variable is proper
+            doesmatch = id_regex.match(symbolname)
+            if not doesmatch:
+                print('Invalid typing of the variable name')
+            else:
+                val = env.scope.getvalue(symbolname)
+                print(val)
             continue
         elif cmd == 'trace':
             varname = commandlst[1]
@@ -77,10 +101,16 @@ while True:
             continue
 
     currline = env.currline  # store the current execution line
+    # handle syntax error
+    if env.currline in errorlines:
+        print('Syntax Error at line {} for line {}'.format(env.currline, total_line))
+        break
+
     while True:
         stacklen = len(exec_stack)
         if stacklen == 0:  # indicates end of program
             break
+
 
         print('Executing {} - {}'.format(exec_stack[-1], exec_stack[-1].linespan))
         exec_done, env = exec_stack[-1].execute(env)
