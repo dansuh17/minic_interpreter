@@ -65,10 +65,12 @@ python3 interpreter.py --cfile test.c
 Where `--cfile` option specifies the file name to run the interpreter on.
 The default file name is `test.c`.
 
+![initimage](init.png)
+
 Once the interpreter is running, the user can type in commands until the program executes properly
 or user chooses to exit.
 
-Available Interpreter Commands:
+*Available Interpreter Commands:*
 - next [lineno] : executes code by lineno lines. if lineno is not given, code executes one line.
 - print [symbol] : prints the value of symbol
 - trace [symbol] : shows the value history of symbol

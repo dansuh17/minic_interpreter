@@ -74,7 +74,7 @@ if __name__ == '__main__':
     args = argparser.parse_args()
 
     # find input c file
-    cfile_dir = './cfiles'
+    cfile_dir = './'
     input_file = args.cfile
     input_file = os.path.join(cfile_dir, input_file)
     print('Interpreting : {}'.format(input_file))
