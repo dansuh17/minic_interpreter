@@ -75,10 +75,10 @@ def t_error(t):
 
 # handle EOF
 def t_eof(t):
-    more = input('Get more input?')
-    if more:
-        self.lexer.input(more)
-        return self.lexer.token()
+    # more = input('Get more input?')
+    # if more:
+    #     self.lexer.input(more)
+    #     return self.lexer.token()
     return None
 
 

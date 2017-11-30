@@ -267,7 +267,6 @@ class FunctionCall(AstNode):
                     args = []
                     if len(self.argument_list) > 0:
                         args = env.pop_val()
-                    print(args)
                     # args = self.argument_list.evaluate()
                     params = funcval.params
                     if len(args) != len(params):
@@ -287,8 +286,6 @@ class FunctionCall(AstNode):
                         param_type, param_dec = param
                         if not arg.vtype.castable(param_type):
                             raise CRuntimeErr('Argument type mismatch {}, {}'.format(arg, param), env)
-                        print('Casting : ')
-                        print(arg.arr_size)
                         arg.cast(param_type)
 
                         # bind argument values to their symbols
@@ -1355,7 +1352,6 @@ class IterationStatement(Statement):
             return False, env
 
         if env.currline >= self.body.startline():  # at the start of body...
-            print(self.phase)
             if self.phase == 'preparation':
                 env.pop_val()  # discard value for preparation
                 self.push_conditions(env)
@@ -1375,7 +1371,6 @@ class IterationStatement(Statement):
                         env.push_exec(self.body)
                         self.phase = 'body'
                     else:
-                        print('ENTERED')
                         env.scope = env.scope.return_scope
                         env.currline = self.endline()  # finish the iteration and proceed
 

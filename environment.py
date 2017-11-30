@@ -30,6 +30,11 @@ class ExecutionEnvironment:
     def pop_val(self):
         return self.value_stack.pop()
 
+    def print_valstack(self):
+        stack_val_print = ''
+        for stack_val in self.value_stack:
+            stack_val_print += (stack_val.__repr__() + ' :: ')
+
 
 class CRuntimeErr(Exception):
     def __init__(self, msg, env=None):

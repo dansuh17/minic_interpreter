@@ -1,9 +1,12 @@
 class Value:
+    _addr = 0xdeadabff  # gloabl address variable... 난 자괴감이 든다
     def __init__(self, vtype, val=None):
         assert isinstance(vtype, TypeVal)
         self.vtype = vtype  # TypeVal instance
         self.val = val  # the actual value (numbers, string literals, or None)
         self.arr_size = None
+        self.address = Value._addr
+        Value._addr += 0x82
 
     def __str__(self):
         return 'Value(type {}, val {})'.format(self.vtype, self.val)
@@ -12,14 +15,16 @@ class Value:
         return self.__str__()
 
     def printval(self):
-        print(self.arr_size)
         if self.arr_size is None:
+            if self.vtype.typename == 'function':
+                return format(self.address, '#08x')
             if self.val is None:
                 return 'N/A'
             else:
                 return self.val
         else:
-            return [v.printval() for v in self.val]
+            # return [v.printval() for v in self.val]  # if you want to see the values..
+            return format(self.address, '#08x')  # in hexadecimal address format
 
     def cast(self, casttype):
         if self.val is None:
@@ -60,14 +65,11 @@ class TypeVal:
 
 
 class Symbol:
-    _addr = 0x0000abff  # gloabl address variable... 난 자괴감이 든다
     def __init__(self, name, astnode):
         self.name = name
-        self.address = Symbol._addr
         self.astnode = astnode  # corresponding AST node
         self.val_history = []
         self.value = None  # Value instance
-        Symbol._addr += 0x80
 
     def __repr__(self):
         return 'Symbol({}, val {})'.format(self.name, self.value)
@@ -97,7 +99,7 @@ class Scope:
         scope = self
         while scope is not None:
             print(scope.symbol_table, end=' ')
-            print('return : {}'.format(scope.return_lineno))
+            print('returnline : {}'.format(scope.return_lineno))
             print('-----------------\n')
             scope = scope.parent_scope
         print()
