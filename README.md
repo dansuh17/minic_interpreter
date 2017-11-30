@@ -1,10 +1,10 @@
 # Interpreter for Mini-C
-A project from KAIST CS420 Course 'Compiler Design'.
+A project from KAIST CS420 'Compiler Design' 2017 Fall.
 
 ## The Scope of Mini-C
 The scope of Mini-C language to interpret is roughly defined by the sample code:
 
-```
+```c
 int avg(int count, int *value) {
   int i, total;
   total = 0;
