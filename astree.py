@@ -439,6 +439,31 @@ class TypeCast(AstNode):
             children_nodes.append(self.cast_expr)
         return children_nodes
 
+    def execute(self, env):
+        if env.currline < self.startline() or env.currline > self.endline():
+            # execution line number not reached yet
+            return False, env
+
+        exec_done = False
+        if not self.exec_visited:
+            self.add_child_executes(env.exec_stack)
+            self.exec_visited = True
+        else:
+            value = env.pop_val()
+            if isinstance(value, Symbol):
+                value = env.scope.getvalue(value.name)
+            cast_type = env.pop_val()  # TypeVal
+
+            if not value.vtype.castable(cast_type):
+                raise CRuntimeErr('Type cannot be casted {}, {}'.format(value, cast_type), env)
+
+            value.cast(cast_type)
+            env.push_val(value)
+            env.pop_exec()
+            exec_done = True
+            self.exec_visited = False
+        return exec_done, env
+
 
 class BinaryOp(AstNode):
     """

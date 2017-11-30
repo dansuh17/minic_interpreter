@@ -21,7 +21,6 @@ class Value:
         else:
             return [v.printval() for v in self.val]
 
-
     def cast(self, casttype):
         if self.val is None:
             return

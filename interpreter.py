@@ -13,7 +13,7 @@ class SemanticError(Exception):
 
 # path where script exists
 cfile_dir = './cfiles'
-input_file = 'test.c'
+input_file = 'typecast.c'
 input_file = os.path.join(cfile_dir, input_file)
 parser = yacc.parser  # import the parser
 
