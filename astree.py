@@ -244,19 +244,19 @@ class FunctionCall(AstNode):
                 self.exec_visited = False
                 return True, env
 
-
+        # handle any other funcitons
         if not self.exec_visited:
             if len(self.argument_list) != 0:
                 env.push_exec(self.argument_list)
             # defer the execution until register is done - register first
             fundef_node = env.scope.getsymbol(funcname).astnode
             env.push_exec(fundef_node)
-            env.scope.return_lineno = env.currline
+            env.scope.return_lineno = env.currline  # return after defining!
             env.currline = fundef_node.startline()
             self.exec_visited = True
             self.wait_return = False
         else:
-            if env.currline >= self.endline():  # call has been made!
+            if env.currline >= self.startline():  # call has been made! - huge assumption that call is one-liner
                 if not self.wait_return:
                     # function has not been executed and returned
                     if env.scope.getvalue(funcname) is None:
@@ -272,12 +272,12 @@ class FunctionCall(AstNode):
                     params = funcval.params
                     if len(args) != len(params):
                         if not (len(params) == 1 and params[0][0].typename == 'void'):
-                            # exception for void case
+                            # exception for single void case
                             raise CRuntimeErr('Argument number mismatch', env)
 
                     func_scope = Scope({})  # set arguments
                     func_scope.parent_scope = env.scope.root_scope()  # root scope is the parent
-                    func_scope.return_lineno = self.startline()
+                    func_scope.return_lineno = self.endline()
                     func_scope.return_scope = env.scope
                     func_scope.return_type = funcval.rtype
 
@@ -287,6 +287,8 @@ class FunctionCall(AstNode):
                         param_type, param_dec = param
                         if not arg.vtype.castable(param_type):
                             raise CRuntimeErr('Argument type mismatch {}, {}'.format(arg, param), env)
+                        print('Casting : ')
+                        print(arg.arr_size)
                         arg.cast(param_type)
 
                         # bind argument values to their symbols
@@ -311,7 +313,7 @@ class FunctionCall(AstNode):
                     if retval is not None:  # there may not be any return value
                         if not retval.vtype.castable(env.scope.return_type):
                             raise CRuntimeErr('Wrong return type! {} {}'.format(retval, env.scope.return_type), env)
-                        env.push_val(retval)  # store the return value
+                    env.push_val(retval)  # store the return value
 
                     env.currline = env.scope.return_lineno
                     env.scope = env.scope.return_scope  # reset to new scope
@@ -473,6 +475,7 @@ class BinaryOp(AstNode):
             arg2_val = env.pop_val()
             arg1_val = env.pop_val()
 
+
             # get the values
             if isinstance(arg1_val, Symbol):
                 arg1_val = env.scope.getvalue(arg1_val.name)
@@ -480,6 +483,13 @@ class BinaryOp(AstNode):
                 arg2_val = env.scope.getvalue(arg2_val.name)
             op_type = op_val.val
 
+            # check if both operands are proper
+            if arg1_val.val is None:
+                raise CRuntimeErr('Variable {} not initialized!'.format(self.arg1), env)
+            if arg2_val.val is None:
+                raise CRuntimeErr('Variable {} not initialized!'.format(self.arg2), env)
+
+            # DO THE MATH
             if op_type == '*':
                 res = arg1_val.val * arg2_val.val
                 if not arg1_val.vtype.castable(arg2_val.vtype):
@@ -549,7 +559,9 @@ class BinaryOp(AstNode):
             else:
                 raise CRuntimeErr('Invalid binary operator {}'.format(op_val), env)
 
-            env.push_val(Value(vtype, res))
+            res_value = Value(vtype, res)
+            res_value.cast(vtype)
+            env.push_val(res_value)
             env.pop_exec()
             exec_done = True
             self.exec_visited = False
@@ -596,7 +608,9 @@ class Assignment(AstNode):
                 # assign value to the name
                 env.scope.set_value(lval.name, val, env.currline)
             elif isinstance(lval, Value):
+                # array access, for instance
                 lval.val = val.val
+                lval.cast(lval.vtype)
 
             env.push_val('AssignmentRet')  # indicate that assignment has been done properly
             env.pop_exec()
@@ -694,10 +708,16 @@ class Declaration(AstNode):
                     # pointers can be separately declared
                     # ex) int *x, y z -> x is a pointer, y, z are not
                     vtype.ptr = pointer if pointer is not None else 0
-                    value = Value(vtype=vtype, val=init_val)
+
+                    # if initializing variable already exists, there is no need to create a new value object
+                    value = Value(vtype=vtype)
+                    if init_val is not None:
+                        value = init_val
+
+                    # handle array declarations - ex) int mark[4];
                     if decval.dec_type == 'array':
                         vtype.array = 1
-                        value.arr_size = decval.arr_size_val.val
+                        value.arr_size = decval.arr_size_val.val  # array size
                         value.val = [Value(TypeVal(vtype.typename)) for _ in range(value.arr_size)]  # default array init
 
                     if env.scope.getsymbol(symbol.name) is None:
@@ -1381,20 +1401,29 @@ class JumpStatement(Statement):
             return False, env
 
         exec_done = False
-        if not self.exec_visited:
-            self.add_child_executes(env.exec_stack)
-            self.exec_visited = True
+        if not self.exec_visited:  # handle valued return stmt ex) return a;
+            if self.what is not None:
+                env.push_exec(self.what)
+                self.exec_visited = True
+                return False, env
+            else:  # handle empty return statement ex) return;
+                env.push_val(None)
+                env.pop_exec()
+                self.exec_visited = False
+                return True, env
         else:
             if env.currline >= self.endline():
                 ret_val = None
                 if self.what is not None:
-                    ret_val = env.pop_val()
+                    ret_val = env.pop_val()[0]
+                    if isinstance(ret_val, Symbol):
+                        ret_val = env.scope.getvalue(ret_val.name)
 
-                env.scope.return_val = ret_val[0]
+                env.scope.return_val = ret_val
                 env.push_val(ret_val)
                 env.pop_exec()
-                exec_done = True
                 self.exec_visited = False
+                exec_done = True
         return exec_done, env
 
 
@@ -1466,7 +1495,8 @@ class FunDef(AstNode):
 
             # register the symbol in the scope if it does not exist
             funname.astnode = self
-            env.scope.add_symbol(funname.name, funname)
+            if env.scope.getsymbol(funname.name) is None:
+                env.scope.add_symbol(funname.name, funname)
             if env.scope.getvalue(funname.name) is None:
                 env.scope.set_value(
                         funname.name,
@@ -1475,6 +1505,5 @@ class FunDef(AstNode):
             env.pop_exec()
             self.exec_visited = False
             env.currline = env.scope.return_lineno
-            env.scope.return_lineno = None
             exec_done = True
         return exec_done, env

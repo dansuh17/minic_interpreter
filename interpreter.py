@@ -11,8 +11,9 @@ class SemanticError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
+# path where script exists
 cfile_dir = './cfiles'
-input_file = 'sim.c'
+input_file = 'test.c'
 input_file = os.path.join(cfile_dir, input_file)
 parser = yacc.parser  # import the parser
 
@@ -63,7 +64,7 @@ root_scope.return_lineno = len(code_lines) - 1
 
 # evaluation stack - initial stack with function call of main
 main_call = FunctionCall(func_name=Id('main'), argument_list=ArgList([]))
-main_call.linespan = (curr_lineno, curr_lineno)
+main_call.linespan = (curr_lineno, len(code_lines))
 
 exec_stack = [main_call]
 call_stack = []
@@ -72,10 +73,14 @@ env = ExecutionEnvironment(exec_stack, curr_lineno, scope, call_stack)
 # evalutaion loop
 total_line = 0
 numlines = 0
+log = '--' * 10 + '\n'
 while True:
     if numlines == 0:
+        # get command
         print('Next line : {}'.format(code_lines[env.currline - 1]))
         command = input('Command:')  # next line
+
+        # parse and do appropriate action per command
         if command == '':
             commandlst = ['next', '1']
         else:
@@ -84,6 +89,7 @@ while True:
 
         if cmd == 'next':
             numlines = int(commandlst[1])
+            log = '--' * 10 + '\n' # reset log
         elif cmd == 'print':
             symbolname = commandlst[1]
 
@@ -93,13 +99,30 @@ while True:
                 print('Invalid typing of the variable name')
             else:
                 val = env.scope.getvalue(symbolname)
-                print(val)
+                if val is None:
+                    print('Invisible variable')
+                else:
+                    print(val.printval())
             continue
         elif cmd == 'trace':
             varname = commandlst[1]
-            print(env.scope.getsymbol(varname).val_history)
+            symbol = env.scope.getsymbol(varname)
+            if symbol is None:
+                print('Invisible variable')
+            else:
+                for val, line_num in symbol.val_history:
+                    val_print = val.printval()
+                    print('{} = {} at line {}'.format(symbol.name, val_print, line_num))
+            continue
+        elif cmd == 'scope':
+            # show scope stack of this environment
+            env.scope.show()
+            continue
+        elif cmd == 'log':
+            print(log)  # show log for value stack and execution stack
             continue
 
+    # if it reaches this point, the intepreter is proceeding the lines
     currline = env.currline  # store the current execution line
     # handle syntax error
     if env.currline in errorlines:
@@ -111,19 +134,19 @@ while True:
         if stacklen == 0:  # indicates end of program
             break
 
-
-        print('Executing {} - {}'.format(exec_stack[-1], exec_stack[-1].linespan))
+        log += '***Executing {} - {}\n'.format(exec_stack[-1], exec_stack[-1].linespan)
         exec_done, env = exec_stack[-1].execute(env)
 
         # print stack values for debugging
         stack_val_print = ''
         for stack_val in env.value_stack:
             stack_val_print += (stack_val.__repr__() + ' :: ')
-        print(stack_val_print)
-        print(env.exec_stack)
+        log += 'value stack : {}\n'.format(stack_val_print)
+        log += 'exec stack : {}\n'.format(env.exec_stack)
 
         if (not exec_done and len(exec_stack) == stacklen) or (currline != env.currline):
             break
+    print(log)
 
     # update line number
     if currline == env.currline:
@@ -134,9 +157,8 @@ while True:
 
     # do booked updates (++, -- used as postfixes)
     env.exec_booked_updates()
-    # env.scope.show()
 
     # end of program indicator
-    if env.currline >= len(code_lines) or len(exec_stack) == 0:
+    if env.currline >= len(code_lines) or len(env.exec_stack) == 0:
         print('End of Program')
         break

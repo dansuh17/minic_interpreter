@@ -1,15 +1,7 @@
-
-
 class Value:
     def __init__(self, vtype, val=None):
         assert isinstance(vtype, TypeVal)
         self.vtype = vtype  # TypeVal instance
-        if val == None:
-            # default values for certain types
-            if vtype.typename == 'float':
-                val = 0.0
-            elif vtype.typename == 'int':
-                val = 0
         self.val = val  # the actual value (numbers, string literals, or None)
         self.arr_size = None
 
@@ -19,7 +11,21 @@ class Value:
     def __repr__(self):
         return self.__str__()
 
+    def printval(self):
+        print(self.arr_size)
+        if self.arr_size is None:
+            if self.val is None:
+                return 'N/A'
+            else:
+                return self.val
+        else:
+            return [v.printval() for v in self.val]
+
+
     def cast(self, casttype):
+        if self.val is None:
+            return
+
         if self.arr_size is not None:
             # cast all elements of the array
             for arr_val in self.val:
@@ -91,7 +97,9 @@ class Scope:
     def show(self):
         scope = self
         while scope is not None:
-            print(scope.symbol_table, end=' ==> ')
+            print(scope.symbol_table, end=' ')
+            print('return : {}'.format(scope.return_lineno))
+            print('-----------------\n')
             scope = scope.parent_scope
         print()
 
@@ -113,8 +121,11 @@ class Scope:
             return self.parent_scope.getsymbol(sym_name)
 
     def set_value(self, sym_name: str, val: Value, lineno: int):
-        self.getsymbol(sym_name).value = val
-        self.getsymbol(sym_name).val_history.append((val, lineno))
+        sym_val = self.getsymbol(sym_name)
+        if sym_val.value is not None:
+            val.cast(sym_val.value.vtype)
+        sym_val.value = val
+        sym_val.val_history.append((val, lineno))
 
     def getvalue(self, sym_name):
         symbol = self.getsymbol(sym_name)
@@ -134,7 +145,7 @@ class DeclaratorVal:
     """
     Value class for declarators - can be a nested combination of declarators.
     """
-    def __init__(self, dec_type, of_val, pointer_val):
+    def __init__(self, dec_type: str, of_val, pointer_val: int):
         self.dec_type = dec_type  # default, array, or function
         self.of_val = of_val
         self.pointer_val = pointer_val
