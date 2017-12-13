@@ -92,7 +92,7 @@ if __name__ == '__main__':
 
     # regular expression for id
     id_regex = re.compile('[a-zA-Z_][a-zA-Z_0-9]*')
-    # ast_root.show()
+    ast_root.show()
 
     # mark the starting line
     curr_lineno = parser.main_func.linespan[0]  # starting line number of main()
